@@ -39,5 +39,10 @@
   "license": "MIT",
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.110.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oyasumiholiday/ailex.git"
+  },
+  "homepage": "https://github.com/oyasumiholiday/ailex#readme"
 }
