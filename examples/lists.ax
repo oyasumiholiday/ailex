@@ -1,0 +1,35 @@
+-- v0.2: dogfood で「書けなかった」リスト変換が書けるか
+
+fn scale (v : List[Float], k : Float) -> List[Float]
+  eg get(scale([1.0, 2.0, 3.0], 10.0), 2) = 30.0
+body List[Float]
+  map(v, fn (x : Float) => x * k)
+end scale
+
+fn countPositive (v : List[Float]) -> Int
+  eg countPositive([-1.0, 2.0, -3.0, 4.0, 5.0]) = 3
+body Int
+  length(filter(v, fn (x : Float) => x >= 0.0))
+end countPositive
+
+fn product (v : List[Int]) -> Int
+  eg product([1, 2, 3, 4]) = 24
+body Int
+  fold(v, 1, fn (acc : Int, x : Int) => acc * x)
+end product
+
+fn sumSquares (v : List[Float]) -> Float
+  eg sumSquares([3.0, 4.0]) = 25.0
+body Float
+  fold(map(v, fn (x : Float) => x * x), 0.0, fn (a : Float, b : Float) => a + b)
+end sumSquares
+
+fn main () -> Int
+body Int
+  product(scale2(3))
+end main
+
+fn scale2 (n : Int) -> List[Int]
+body List[Int]
+  map([1, 2, 3], fn (x : Int) => x * n)
+end scale2

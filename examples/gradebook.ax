@@ -1,0 +1,57 @@
+-- dogfood 第5ラウンド: 成績表。v0.5.1（fold への期待型伝播・[] と none が初期値に書ける・String の +）
+
+type Student = {name : String, score : Int}
+
+-- "alice:90" 形式の1行を解析（不正行は none）
+fn parseLine (line : String) -> Option[Student]
+  eg parseLine("alice:90") = some({name = "alice", score = 90})
+  eg parseLine("broken") = none
+  eg parseLine("x:y") = none
+body Option[Student]
+  let parts : List[String] = split(trim(line), ":") in
+  if(length(parts) == 2,
+     let sc : Option[Int] = parseInt(getOr(parts, 1, "")) in
+     if(isSome(sc),
+        some({name = getOr(parts, 0, ""), score = unwrapOr(sc, 0)}),
+        none),
+     none)
+end parseLine
+
+fn parseAll (lines : List[String]) -> List[Student]
+  eg parseAll(["a:1", "junk", "b:2"]) = [{name = "a", score = 1}, {name = "b", score = 2}]
+  eg parseAll([]) = []
+body List[Student]
+  fold(lines, [],
+    fn (acc, line) =>
+      let s : Option[Student] = parseLine(line) in
+      if(isSome(s), append(acc, unwrapOr(s, {name = "", score = 0})), acc))
+end parseAll
+
+fn best (ss : List[Student]) -> Option[Student]
+  eg best([{name = "a", score = 1}, {name = "b", score = 9}]) = some({name = "b", score = 9})
+  eg best([]) = none
+body Option[Student]
+  fold(ss, none,
+    fn (acc, s) =>
+      if(isSome(acc),
+         if(s.score > unwrapOr(acc, s).score, some(s), acc),
+         some(s)))
+end best
+
+fn average (ss : List[Student]) -> Float
+  eg average([{name = "a", score = 80}, {name = "b", score = 90}]) = 85.0
+body Float
+  sum(map(ss, fn (s) => toFloat(s.score))) / toFloat(length(ss))
+end average
+
+fn summary (lines : List[String]) -> String
+  eg summary(["alice:90", "bob:80"]) = "2 students, avg 85, top alice"
+body String
+  let ss : List[Student] = parseAll(lines) in
+  toString(length(ss)) + " students, avg " + toString(toInt(average(ss))) + ", top " + unwrapOr(best(ss), {name = "?", score = 0}).name
+end summary
+
+fn main () -> String
+body String
+  summary(["alice:90", "bob:80", "oops", "carol:70"])
+end main

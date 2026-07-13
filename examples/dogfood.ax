@@ -1,0 +1,48 @@
+-- dogfood: 非自明な実用プログラムを v0.1 で書けるか
+
+fn mean (v : List[Float]) -> Float
+  eg mean([2.0, 4.0, 6.0]) = 4.0
+body Float
+  sum(v) / toFloat(length(v))
+end mean
+
+fn variance (v : List[Float]) -> Float
+  ensures ret >= 0.0
+  eg variance([1.0, 3.0]) = 1.0
+  eg variance([2.0, 2.0]) = 0.0
+body Float
+  let n : Float = toFloat(length(v)) in
+  let m : Float = sum(v) / n in
+  dot(v, v) / n - m * m
+end variance
+
+fn stddev (v : List[Float]) -> Float
+  eg stddev([1.0, 3.0]) = 1.0
+body Float
+  sqrt(variance(v))
+end stddev
+
+fn clamp (x : Float, lo : Float, hi : Float) -> Float
+  eg clamp(5.0, 0.0, 3.0) = 3.0
+  eg clamp(-1.0, 0.0, 3.0) = 0.0
+body Float
+  if(x < lo, lo, if(x > hi, hi, x))
+end clamp
+
+fn grade (score : Int) -> String
+  eg grade(95) = "A"
+  eg grade(72) = "C"
+body String
+  if(score >= 90, "A", if(score >= 80, "B", if(score >= 70, "C", "F")))
+end grade
+
+fn lerp (a : Float, b : Float, t : Float) -> Float
+  eg lerp(0.0, 10.0, 0.5) = 5.0
+body Float
+  a + (b - a) * t
+end lerp
+
+fn main () -> Float
+body Float
+  stddev([2.0, 4.0, 6.0])
+end main

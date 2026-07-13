@@ -1,0 +1,20 @@
+-- Ailex v0.1 デモ
+
+fn norm (v : List[Float]) -> Float
+  ensures ret >= 0.0
+  eg norm([3.0, 4.0]) = 5.0
+body Float
+  sqrt(dot(v, v))
+end norm
+
+fn relu (x : Float) -> Float
+  eg relu(-2.0) = 0.0
+  eg relu(3.0) = 3.0
+body Float
+  if(x >= 0.0, x, 0.0)
+end relu
+
+fn main () -> Float
+body Float
+  let a : Float = norm([5.0, 12.0]) in relu(a - 20.0)
+end main

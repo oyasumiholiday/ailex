@@ -1,0 +1,43 @@
+{
+  "name": "ailex",
+  "version": "0.5.3",
+  "description": "AI-first programming language: contracts as executable examples, structured diagnostics that disclose scope, two verified backends (interpreter + JavaScript).",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "ailex": "./bin/ailex.js"
+  },
+  "engines": {
+    "node": ">=23"
+  },
+  "scripts": {
+    "test": "node core/conformance.ts",
+    "examples": "for f in examples/*.ax; do node core/cli.ts run $f; done"
+  },
+  "files": [
+    "bin",
+    "core",
+    "examples",
+    "agent",
+    "PRIMER.md",
+    "PRIMER.en.md",
+    "AGENTS.md",
+    "SPEC.md",
+    "README.md",
+    "README.ja.md",
+    "CHANGELOG.md",
+    "env.ts"
+  ],
+  "keywords": [
+    "language",
+    "ai",
+    "llm",
+    "typed",
+    "contracts",
+    "transpiler"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.110.0"
+  }
+}

@@ -1,0 +1,39 @@
+-- dogfood 第2ラウンド: 家計簿の集計。type エイリアス(v0.3.1)で書き直し版
+type Expense = {name : String, amount : Float, cat : String}
+
+fn spent (es : List[Expense]) -> Float
+  eg spent([{name = "coffee", amount = 3.0, cat = "food"}, {name = "book", amount = 12.0, cat = "edu"}]) = 15.0
+body Float
+  fold(es, 0.0, fn (acc : Float, e : Expense) => acc + e.amount)
+end spent
+
+fn inCat (es : List[Expense], c : String) -> List[Expense]
+body List[Expense]
+  filter(es, fn (e : Expense) => e.cat == c)
+end inCat
+
+fn catTotal (es : List[Expense], c : String) -> Float
+  eg catTotal([{name = "coffee", amount = 3.0, cat = "food"}, {name = "lunch", amount = 9.0, cat = "food"}, {name = "book", amount = 12.0, cat = "edu"}], "food") = 12.0
+body Float
+  spent(inCat(es, c))
+end catTotal
+
+fn biggest (es : List[Expense]) -> Float
+  eg biggest([{name = "a", amount = 3.0, cat = "x"}, {name = "b", amount = 12.0, cat = "y"}, {name = "c", amount = 7.0, cat = "x"}]) = 12.0
+body Float
+  fold(es, 0.0, fn (acc : Float, e : Expense) => if(e.amount > acc, e.amount, acc))
+end biggest
+
+fn overBudget (es : List[Expense], budget : Float) -> Bool
+  eg overBudget([{name = "a", amount = 30.0, cat = "x"}], 20.0) = true
+body Bool
+  spent(es) > budget
+end overBudget
+
+fn main () -> Float
+body Float
+  catTotal([{name = "coffee", amount = 3.0, cat = "food"},
+            {name = "lunch", amount = 9.0, cat = "food"},
+            {name = "book", amount = 12.0, cat = "edu"},
+            {name = "train", amount = 5.0, cat = "move"}], "food")
+end main

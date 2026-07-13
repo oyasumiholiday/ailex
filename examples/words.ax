@@ -1,0 +1,30 @@
+-- dogfood 第3ラウンド: テキスト処理（v0.4 の文字列 stdlib と安全な取得を総動員）
+
+fn wordCount (s : String) -> Int
+  eg wordCount("ai native language") = 3
+body Int
+  length(split(trim(s), " "))
+end wordCount
+
+fn longest (s : String) -> String
+  eg longest("ai native language") = "language"
+body String
+  fold(split(s, " "), "", fn (best, w) => if(strlen(w) > strlen(best), w, best))
+end longest
+
+fn slug (s : String) -> String
+  eg slug("AI Native Language") = "AI-Native-Language"
+body String
+  join(split(trim(s), " "), "-")
+end slug
+
+fn report (title : String, scores : List[Int]) -> String
+  eg report("test", [90, 80]) = "test: n=2 first=90"
+body String
+  concat(title, concat(": n=", concat(toString(length(scores)), concat(" first=", toString(getOr(scores, 0, 0))))))
+end report
+
+fn main () -> String
+body String
+  report(slug("weekly stats"), [95, 88, 72])
+end main

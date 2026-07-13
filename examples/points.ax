@@ -1,0 +1,33 @@
+-- v0.3: 構造データ（Record）。dogfood F「点の距離が4スカラ引数になる」の解消を確認
+
+fn mk (x : Float, y : Float) -> {x : Float, y : Float}
+body {x : Float, y : Float}
+  {x = x, y = y}
+end mk
+
+fn dist (p : {x : Float, y : Float}, q : {x : Float, y : Float}) -> Float
+  ensures ret >= 0.0
+  eg dist({x = 0.0, y = 0.0}, {x = 3.0, y = 4.0}) = 5.0
+body Float
+  sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y))
+end dist
+
+fn centroid (ps : List[{x : Float, y : Float}]) -> {x : Float, y : Float}
+  eg centroid([{x = 0.0, y = 0.0}, {x = 2.0, y = 4.0}]) = {x = 1.0, y = 2.0}
+body {x : Float, y : Float}
+  let n : Float = toFloat(length(ps)) in
+  {x = sum(map(ps, fn (p : {x : Float, y : Float}) => p.x)) / n,
+   y = sum(map(ps, fn (p : {x : Float, y : Float}) => p.y)) / n}
+end centroid
+
+fn inCircle (c : {center : {x : Float, y : Float}, r : Float}, p : {x : Float, y : Float}) -> Bool
+  eg inCircle({center = {x = 0.0, y = 0.0}, r = 5.0}, {x = 3.0, y = 3.0}) = true
+  eg inCircle({center = {x = 0.0, y = 0.0}, r = 5.0}, {x = 9.0, y = 0.0}) = false
+body Bool
+  dist(c.center, p) <= c.r
+end inCircle
+
+fn main () -> Float
+body Float
+  dist(centroid([mk(0.0, 0.0), mk(4.0, 0.0), mk(2.0, 6.0)]), mk(2.0, 2.0))
+end main

@@ -1,0 +1,31 @@
+-- v0.5: Option[T]。probe M（parse不能）と N（find の番兵）の解消を実証
+
+type Expense = {amount : Float, cat : String}
+
+fn firstBig (es : List[Expense]) -> Option[Expense]
+  eg firstBig([{amount = 3.0, cat = "a"}, {amount = 200.0, cat = "b"}]) = some({amount = 200.0, cat = "b"})
+  eg firstBig([{amount = 3.0, cat = "a"}]) = none
+body Option[Expense]
+  find(es, fn (e) => e.amount > 100.0)
+end firstBig
+
+fn readScore (s : String) -> Int
+  eg readScore("95") = 95
+  eg readScore(" 42 ") = 42
+  eg readScore("abc") = 0
+body Int
+  unwrapOr(parseInt(s), 0)
+end readScore
+
+fn sumScores (ss : List[String]) -> Int
+  eg sumScores(["10", "x", "20"]) = 30
+body Int
+  fold(map(ss, fn (s) => unwrapOr(parseInt(s), 0)), 0, fn (a, x) => a + x)
+end sumScores
+
+fn main () -> String
+body String
+  if(isSome(firstBig([{amount = 250.0, cat = "travel"}])),
+     "over-100 found",
+     "all small")
+end main
