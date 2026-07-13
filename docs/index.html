@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ailex — a small typed language designed for AI to write</title>
+<meta name="description" content="Executable example-contracts, scope-disclosing diagnostics, verified interpreter+JS backends. Teach it to any LLM with a one-page primer.">
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --ink: #e6edf3; --muted: #8b949e;
+    --accent: #58a6ff; --good: #3fb950; --bad: #f85149; --border: #30363d;
+    --code-bg: #0d1117;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #ffffff; --panel: #f6f8fa; --ink: #1f2328; --muted: #59636e;
+      --accent: #0969da; --good: #1a7f37; --bad: #d1242f; --border: #d1d9e0; --code-bg: #f6f8fa; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 ui-sans-serif, system-ui, "Segoe UI", sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+  header { padding: 56px 0 8px; }
+  h1 { font-size: 44px; margin: 0; letter-spacing: -1px; }
+  .tag { color: var(--muted); font-size: 19px; margin: 8px 0 0; }
+  .links { margin: 14px 0 0; }
+  .links a { color: var(--accent); text-decoration: none; margin-right: 18px; }
+  .links a:hover { text-decoration: underline; }
+  h2 { font-size: 22px; margin: 44px 0 12px; }
+  .play { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  select, button { font: 14px ui-monospace, monospace; padding: 7px 14px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--ink); cursor: pointer; }
+  button.run { background: var(--good); border-color: var(--good); color: #fff; font-weight: 700; }
+  button:hover { filter: brightness(1.12); }
+  textarea { width: 100%; height: 320px; resize: vertical; border: 1px solid var(--border);
+    border-radius: 7px; background: var(--code-bg); color: var(--ink); padding: 12px;
+    font: 13.5px/1.55 ui-monospace, "SF Mono", Menlo, monospace; tab-size: 2; }
+  textarea:focus { outline: 1px solid var(--accent); }
+  .out { margin-top: 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--code-bg);
+    padding: 12px; font: 13.5px/1.55 ui-monospace, monospace; white-space: pre-wrap; overflow-x: auto; min-height: 40px; }
+  .ok { color: var(--good); } .err { color: var(--bad); } .dim { color: var(--muted); }
+  ul.why { padding-left: 20px; } ul.why li { margin: 8px 0; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  code { background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 14px; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; overflow-x: auto; font-size: 13.5px; }
+  footer { color: var(--muted); padding: 40px 0 60px; font-size: 14px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Ailex</h1>
+  <p class="tag">A small typed language designed for AI to write. Contracts are executable examples; diagnostics disclose what's in scope; two verified backends.</p>
+  <p class="links">
+    <a href="https://github.com/oyasumiholiday/ailex">GitHub</a>
+    <a href="https://github.com/oyasumiholiday/ailex/blob/main/PRIMER.en.md">Primer (teach your AI in one page)</a>
+    <a href="https://github.com/oyasumiholiday/ailex/blob/main/README.ja.md">日本語</a>
+  </p>
+</header>
+
+<h2>Try it — runs entirely in your browser</h2>
+<div class="play">
+  <div class="bar">
+    <select id="example"></select>
+    <button class="run" id="run">▶ Run</button>
+    <button id="showjs">Show JavaScript</button>
+    <span class="dim">check → contracts (eg) → main()</span>
+  </div>
+  <textarea id="src" spellcheck="false"></textarea>
+  <div class="out" id="out"><span class="dim">Press Run.</span></div>
+</div>
+
+<h2>Why an AI-first language</h2>
+<ul class="why">
+  <li><b>Contracts are executed.</b> Every <code>eg</code> line runs on every check — on both backends. Break one and you get a structured report, not silence.</li>
+  <li><b>Diagnostics disclose scope.</b> Type errors carry every usable name with its type as JSON. Measured: this turns an LLM's unknown-API guessing loop into a one-step fix (pass@k 80%→98–100%).</li>
+  <li><b>Syntax follows the model's prior.</b> When lambda annotations were mandatory, every first-attempt failure was that parse error. The language was fixed, not the models: 50–63% → 100% first-attempt correctness.</li>
+  <li><b>One page teaches it.</b> With only the <a href="https://github.com/oyasumiholiday/ailex/blob/main/PRIMER.en.md">primer</a> in context, Claude Haiku and Claude Opus wrote 16/16 tasks correctly on the first attempt. Every claim above links to logged experiments in the repo.</li>
+</ul>
+
+<h2>Use it locally</h2>
+<pre>git clone https://github.com/oyasumiholiday/ailex && cd ailex
+node core/cli.ts run examples/gradebook.ax     # check + contracts + run (Node 23+)
+npm test                                       # 89 conformance cases, both backends</pre>
+
+<h2>Teach it to your agent</h2>
+<p>Drop <a href="https://github.com/oyasumiholiday/ailex/blob/main/PRIMER.en.md">PRIMER.en.md</a> into your agent's context — that is the whole language. Claude Code users: copy <code>agent/</code> to <code>~/.claude/skills/ailex/</code> and your agent will propose Ailex when a task fits.</p>
+
+<footer>
+  MIT License · <a href="https://github.com/oyasumiholiday/ailex">github.com/oyasumiholiday/ailex</a> · Built with an honest lab notebook: negative results and retracted claims are in the repo.
+</footer>
+</div>
+
+<script type="module">
+import { parseProgram, check, runContracts, evalInProgram, showExpr, valEq, toJs, runJs } from "./ailex.js";
+
+const EXAMPLES = {
+"points — records & contracts": `type Point = {x : Float, y : Float}
+
+fn dist (p : Point, q : Point) -> Float
+  ensures ret >= 0.0
+  eg dist({x = 0.0, y = 0.0}, {x = 3.0, y = 4.0}) = 5.0
+body Float
+  sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y))
+end dist
+
+fn main () -> Float
+body Float
+  dist({x = 1.0, y = 1.0}, {x = 4.0, y = 5.0})
+end main`,
+"option — safe failure": `fn readScore (s : String) -> Int
+  eg readScore("95") = 95
+  eg readScore("abc") = 0
+body Int
+  unwrapOr(parseInt(s), 0)
+end readScore
+
+fn sumScores (ss : List[String]) -> Int
+  eg sumScores(["10", "x", "20"]) = 30
+body Int
+  fold(ss, 0, fn (a, s) => a + readScore(s))
+end sumScores
+
+fn main () -> Int
+body Int
+  sumScores(["90", "oops", "8"])
+end main`,
+"ledger — filter & fold": `type Expense = {amount : Float, cat : String}
+
+fn catTotal (es : List[Expense], c : String) -> Float
+  eg catTotal([{amount = 3.0, cat = "food"}, {amount = 9.0, cat = "food"}, {amount = 12.0, cat = "edu"}], "food") = 12.0
+body Float
+  fold(filter(es, fn (e) => e.cat == c), 0.0, fn (a, e) => a + e.amount)
+end catTotal
+
+fn main () -> Float
+body Float
+  catTotal([{amount = 3.0, cat = "food"}, {amount = 9.0, cat = "food"}], "food")
+end main`,
+"blank": `fn hello (name : String) -> String
+  eg hello("world") = "hello, world!"
+body String
+  "hello, " + name + "!"
+end hello
+
+fn main () -> String
+body String
+  hello("Ailex")
+end main`,
+};
+
+const sel = document.getElementById("example"), src = document.getElementById("src"), out = document.getElementById("out");
+for (const k of Object.keys(EXAMPLES)) sel.add(new Option(k, k));
+src.value = EXAMPLES[sel.value];
+sel.onchange = () => { src.value = EXAMPLES[sel.value]; out.innerHTML = '<span class="dim">Press Run.</span>'; };
+
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function runAll(showJS) {
+  let prog;
+  try { prog = parseProgram(src.value); }
+  catch (e) { out.innerHTML = `<span class="err">parse error</span>\n${esc(e.message)}`; return; }
+  const r = check(prog);
+  if (!r.ok) { out.innerHTML = `<span class="err">type/contract check failed</span>\n${esc(JSON.stringify(r.errors, null, 2))}`; return; }
+  if (showJS) { out.innerHTML = `<span class="dim">// generated JavaScript</span>\n${esc(toJs(prog))}`; return; }
+  const lines = [];
+  const viol = runContracts(prog);
+  const egn = prog.fns.reduce((n, f) => n + f.contracts.filter((c) => c.kind === "eg").length, 0);
+  if (viol.length) { out.innerHTML = `<span class="err">contract violations</span>\n${esc(JSON.stringify(viol, null, 2))}`; return; }
+  // JS バックエンドでも契約を検証（両系一致＝変換器の検証を兼ねる）
+  for (const f of prog.fns) for (const c of f.contracts) {
+    if (c.kind !== "eg") continue;
+    try {
+      const got = runJs(prog, showExpr(c.call)), want = evalInProgram(prog, showExpr(c.value));
+      if (!valEq(got, want)) { out.innerHTML = `<span class="err">backend mismatch on ${esc(showExpr(c.call))} — please report this</span>`; return; }
+    } catch (e) { out.innerHTML = `<span class="err">backend error: ${esc(e.message)}</span>`; return; }
+  }
+  if (egn) lines.push(`<span class="ok">✓ ${egn} example contract${egn > 1 ? "s" : ""} verified (interpreter + JS backend)</span>`);
+  const main = prog.fns.find((f) => f.name === "main" && f.params.length === 0);
+  if (main) {
+    try { lines.push(`main() = <b>${esc(JSON.stringify(runJs(prog, "main()")))}</b>`); }
+    catch (e) { lines.push(`<span class="err">runtime: ${esc(e.message)}</span>`); }
+  }
+  if (!lines.length) lines.push('<span class="dim">checked OK (no eg, no main)</span>');
+  out.innerHTML = lines.join("\n");
+}
+document.getElementById("run").onclick = () => runAll(false);
+document.getElementById("showjs").onclick = () => runAll(true);
+src.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") runAll(false); });
+</script>
+</body>
+</html>
