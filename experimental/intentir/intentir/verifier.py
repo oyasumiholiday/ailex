@@ -57,6 +57,12 @@ def run_action(
     }
 
 
+def normalize_state(
+    ir: dict[str, Any], state: dict[str, Any] | None = None
+) -> dict[str, list[dict[str, Any]]]:
+    return create_store(entity_index(ir), state)
+
+
 def verify_test(
     test: dict[str, Any],
     entities: dict[str, dict[str, Any]],

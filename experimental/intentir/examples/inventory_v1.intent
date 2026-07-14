@@ -1,0 +1,20 @@
+module Inventory
+
+entity Item:
+  id: UUID required key
+  name: Text required
+
+action CreateItem:
+  input:
+    id: UUID required
+    name: Text required
+  requires:
+    name is not empty
+  effects:
+    insert Item
+  ensures:
+    created Item.id equals input.id
+
+test "商品を作成できる":
+  when CreateItem(id="item-1", name="牛乳")
+  expect Item count equals 1

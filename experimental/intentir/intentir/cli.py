@@ -12,14 +12,21 @@ from intentir.canonical import canonical_json
 from intentir.compiler import compile_source
 from intentir.formatter import format_source
 from intentir.generators.typescript import generate_typescript
+from intentir.migration import MigrationError, apply_migration, plan_migration
 from intentir.parser import ParseError
 from intentir.reports import generate_validation_report
-from intentir.storage import SQLiteStateRepository
+from intentir.storage import (
+    SQLiteStateRepository,
+    StorageError,
+    empty_storage_schema,
+    storage_schema,
+    storage_schema_hash,
+)
 from intentir.validator import ValidationError
-from intentir.verifier import run_action, verify_ir
+from intentir.verifier import normalize_state, run_action, verify_ir
 
 
-COMMANDS = {"check", "test", "run", "build", "fmt", "report", "ir"}
+COMMANDS = {"check", "test", "run", "migrate", "build", "fmt", "report", "ir"}
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -42,6 +49,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "check": command_check,
         "test": command_test,
         "run": command_run,
+        "migrate": command_migrate,
         "build": command_build,
         "fmt": command_fmt,
         "report": command_report,
@@ -78,6 +86,17 @@ def build_parser() -> argparse.ArgumentParser:
     state_source.add_argument("--state", type=Path, help="JSON state file")
     state_source.add_argument("--db", type=Path, help="persistent SQLite database")
     run.add_argument("--write-state", type=Path, help="write resulting JSON state")
+
+    migrate = commands.add_parser("migrate", help="plan or apply a SQLite schema migration")
+    migrate.add_argument("source", type=Path)
+    migrate.add_argument("--db", type=Path, required=True)
+    migrate.add_argument("--apply", action="store_true", help="apply the migration")
+    migrate.add_argument(
+        "--allow-destructive",
+        action="store_true",
+        help="allow entity or field removal",
+    )
+    migrate.add_argument("--json", action="store_true", help="emit structured output")
 
     build = commands.add_parser("build", help="compile a program")
     build.add_argument("source", type=Path)
@@ -181,6 +200,63 @@ def command_run(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def command_migrate(args: argparse.Namespace) -> None:
+    ir = compile_path(args.source)
+    try:
+        with SQLiteStateRepository(args.db) as repository:
+            with repository.transaction():
+                stored = repository.inspect(ir["module"])
+                if stored is None:
+                    source_schema = empty_storage_schema()
+                    state: dict[str, Any] = {}
+                    source_present = False
+                else:
+                    source_schema = stored["schema"]
+                    state = stored["state"]
+                    source_present = True
+                    if source_schema is None:
+                        if stored["schemaHash"] != storage_schema_hash(ir):
+                            raise StorageError(
+                                "legacy database has no schema snapshot; "
+                                "migrate through the matching v0.5 source first"
+                            )
+                        source_schema = storage_schema(ir)
+
+                plan = plan_migration(
+                    source_schema,
+                    ir,
+                    source_present=source_present,
+                )
+                applied = False
+                normalized = state
+                if args.apply:
+                    migrated = apply_migration(
+                        state,
+                        plan,
+                        allow_destructive=args.allow_destructive,
+                    )
+                    normalized = normalize_state(ir, migrated)
+                    repository.save(ir, normalized)
+                    applied = True
+        result = {
+            "ok": True,
+            "applied": applied,
+            "database": str(args.db),
+            "plan": plan,
+            "records": {
+                entity: len(records) for entity, records in sorted(normalized.items())
+            },
+        }
+    except (OSError, ValueError, MigrationError, sqlite3.Error) as error:
+        print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(render_migration_result(result))
+
+
 def command_build(args: argparse.Namespace) -> None:
     ir = compile_path(args.source)
     if args.target == "typescript":
@@ -225,6 +301,35 @@ def command_report(args: argparse.Namespace) -> None:
 def command_ir(args: argparse.Namespace) -> None:
     ir = compile_path(args.source)
     print(canonical_json(ir) if args.canonical else json.dumps(ir, indent=2, ensure_ascii=False))
+
+
+def render_migration_result(result: dict[str, Any]) -> str:
+    plan = result["plan"]
+    lines = [
+        f"Migration {plan['id']}",
+        f"  {plan['fromSchemaHash'] or '(new database)'} -> {plan['toSchemaHash']}",
+    ]
+    if plan["operations"]:
+        for operation in plan["operations"]:
+            lines.append(
+                f"  [{operation['safety']}] {operation['descriptionJa']}"
+            )
+    else:
+        lines.append("  no schema changes")
+    summary = plan["summary"]
+    lines.append(
+        f"  safe={summary['safe']} destructive={summary['destructive']} "
+        f"manual={summary['manual']}"
+    )
+    if result["applied"]:
+        lines.append("Applied successfully.")
+    elif not plan["applicable"]:
+        lines.append("Not applicable automatically: manual values are required.")
+    elif plan["requiresDestructiveApproval"]:
+        lines.append("Review the plan, then use --apply --allow-destructive.")
+    else:
+        lines.append("Review the plan, then use --apply.")
+    return "\n".join(lines)
 
 
 def legacy_main(arguments: list[str]) -> None:

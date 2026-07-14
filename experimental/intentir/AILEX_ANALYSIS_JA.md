@@ -19,7 +19,7 @@ Ailex の最も強い点は、AI向け言語の設計判断を実際のモデル
 1. AilexをAIが生成・修復しやすい実行言語または表層投影として使う
 2. その下に、内容アドレス付きの意味グラフを「真実の表現」として置く
 
-このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化まで拡張しました。
+このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化、v0.6でSchema SnapshotとMigration IRまで拡張しました。
 
 ## Ailex の強み
 
@@ -218,11 +218,25 @@ ActionのEffectから、対象Entityと`insert/update/delete`操作を持つRepo
 
 Moduleごとの正規化StateをSQLiteへ保存し、別プロセスのCLI実行間で状態を継続できます。読込から保存まではSQLiteトランザクションで保護し、Entity定義のStorage Schema Hashが一致しないDBは拒否します。
 
+## IntentIR v0.6で追加した改善
+
+### 内容アドレス付きMigration IR
+
+SQLiteへ保存したSchema Snapshotと新しいIRを比較し、EntityとFieldの差分を構造化されたMigration操作へ変換します。Planと各操作には内容アドレスを付与し、同じ変更からは宣言順や実行時刻に依存しない同じIDを生成します。
+
+### 変更の安全性分類
+
+Migration操作を`safe / destructive / manual`へ分類します。Optional Field、Default付きField、空Entityの追加は自動適用でき、FieldやEntityの削除には明示的な`--allow-destructive`が必要です。型変更や値を補えない必須Field追加は`manual`として自動適用を拒否します。
+
+### Transactional applyと旧DB互換
+
+`intentir migrate`は既定でPlanだけを表示し、`--apply`が指定された場合だけState変換、対象Schemaでの再検証、Schema Snapshot更新を一つのSQLite Transactionで行います。v0.5 DBはSchema Hashが対象と一致するときに読込を継続し、次回保存時にSnapshotを補完します。
+
 ## 次の優先順位
 
-### 1. MigrationとStorage投影
+### 1. Relational Storage投影
 
-現在のSQLiteはModule StateをJSONとして保持します。次はSchema Hash間のMigration IRと、Entityを関係テーブルへ投影する規則を追加します。
+現在のSQLiteはMigration可能になりましたが、Module Stateは一つのJSONとして保持しています。次はEntity、Field、Key、Uniqueを関係テーブルへ決定的に投影し、Index生成や部分更新にもMigration IRを適用できるようにします。
 
 ### 2. 関数、一般式、Module
 

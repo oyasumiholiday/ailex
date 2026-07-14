@@ -4,7 +4,7 @@ IntentIR is an executable, machine-oriented semantic IR and a compact surface la
 
 The project complements an AI-friendly language such as [Ailex](https://github.com/oyasumiholiday/ailex): concise source is used for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
-IntentIR v0.5 has a Go/Python-like development loop (`check`, `test`, `run`, `build`, `fmt`), key and unique constraints, and persistent SQLite state. It is still a domain language rather than a general-purpose replacement for Go or Python.
+IntentIR v0.6 has a Go/Python-like development loop (`check`, `test`, `run`, `migrate`, `build`, `fmt`), key and unique constraints, persistent SQLite state, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
 
 ## Example
 
@@ -69,6 +69,13 @@ python3 -m intentir run examples/todo_crud.intent CreateTask \
   --input '{"id":"task-2","title":"portable"}' \
   --write-state /tmp/todo-state.json
 
+# Plan and apply a storage schema migration
+python3 -m intentir run examples/inventory_v1.intent CreateItem \
+  --input '{"id":"item-1","name":"milk"}' \
+  --db /tmp/inventory.db
+python3 -m intentir migrate examples/inventory_v2.intent --db /tmp/inventory.db
+python3 -m intentir migrate examples/inventory_v2.intent --db /tmp/inventory.db --apply
+
 # Generate TypeScript or graph IR
 python3 -m intentir build examples/todo_crud.intent --target typescript
 python3 -m intentir build examples/todo_crud.intent --target ir
@@ -87,7 +94,7 @@ python3 -m intentir examples/todo.intent --emit verify
 python3 -m intentir examples/todo.intent --emit typescript
 ```
 
-## v0.5 capabilities
+## v0.6 capabilities
 
 - Content-addressed entity, action, test, edge, effect, and obligation nodes
 - Canonical JSON and a module-level SHA-256 semantic hash
@@ -102,11 +109,17 @@ python3 -m intentir examples/todo.intent --emit typescript
 - Static reference, binding, field, and type validation with stable diagnostic codes
 - Transactional Python execution with JSON and SQLite state validation
 - SQLite transactions, schema fingerprints, and concurrent-writer locking
+- Stored schema snapshots and content-addressed migration plans/operations
+- Safe default/optional field additions and empty entity additions
+- Explicit approval for destructive entity/field removal
+- Automatic rejection of type changes and required fields without migration values
 - TypeScript generation with runtime contracts, uniqueness checks, and `runIntentIRTests()`
 - Idempotent source formatting with full-line comment preservation
 - Japanese static and runtime validation reports
 
-`update` and `delete` must select a `key` or `unique` field and still verify exactly one match at runtime. Duplicate inserts, zero matches, and multiple matches fail atomically, so an action never commits partial state. SQLite state is bound to the content hash of the entity schema; schema changes require a future migration command instead of silently reusing incompatible data.
+`update` and `delete` must select a `key` or `unique` field and still verify exactly one match at runtime. Duplicate inserts, zero matches, and multiple matches fail atomically, so an action never commits partial state. SQLite state is bound to the content hash of the entity schema; schema changes must pass through an explicit `migrate` plan instead of silently reusing incompatible data.
+
+`migrate` is plan-only by default. `--apply` performs the state transform and target-schema validation in one SQLite transaction. Destructive operations additionally require `--allow-destructive`; changes that need per-record values remain blocked as `manual`.
 
 ## Architecture
 
@@ -116,6 +129,7 @@ python3 -m intentir examples/todo.intent --emit typescript
 - `intentir/ir.py`: content-addressed graph and verification obligations
 - `intentir/verifier.py`: transactional interpreter and scenario verifier
 - `intentir/storage.py`: SQLite state repository and storage schema fingerprints
+- `intentir/migration.py`: migration diff, safety classification, and state transforms
 - `intentir/generators/typescript.py`: TypeScript backend and generated test runner
 - `intentir/formatter.py`: canonical source formatter
 - `intentir/cli.py`: command-line development workflow
@@ -128,8 +142,8 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The suite contains 23 tests, including cross-process SQLite CLI persistence and a Node.js E2E run of generated TypeScript CRUD and uniqueness checks.
+The suite contains 28 tests, including migration plan/apply/rollback, v0.5 database compatibility, cross-process SQLite CLI persistence, and a Node.js E2E run of generated TypeScript CRUD and uniqueness checks.
 
 ## Current boundaries
 
-SQLite currently persists each module's normalized JSON state; it is not yet a relational Entity mapper. IntentIR also lacks migrations, functions, general expressions, branching, loops, relationships, modules/imports, package management, declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is a migration plan plus functions and module boundaries, followed by hash-guarded Patch IR for AI edits.
+SQLite currently persists each module's normalized JSON state; it is not yet a relational Entity mapper. Migration cannot infer renames or synthesize missing values for new required fields. IntentIR also lacks functions, general expressions, branching, loops, relationships, modules/imports, package management, declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is relational storage projection plus functions and module boundaries, followed by hash-guarded Patch IR for AI edits.

@@ -1,5 +1,6 @@
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -11,10 +12,15 @@ from intentir.compiler import compile_source
 from intentir.expressions import parse_effect
 from intentir.formatter import format_source
 from intentir.generators.typescript import generate_typescript
+from intentir.migration import MigrationError, apply_migration, plan_migration
 from intentir.reports import generate_validation_report
-from intentir.storage import SQLiteStateRepository, StorageError
+from intentir.storage import (
+    SQLiteStateRepository,
+    StorageError,
+    storage_schema_hash,
+)
 from intentir.validator import ValidationError
-from intentir.verifier import run_action, verify_ir
+from intentir.verifier import normalize_state, run_action, verify_ir
 
 
 SOURCE = """
@@ -43,12 +49,20 @@ test "creates task":
 ROOT = Path(__file__).resolve().parents[1]
 CRUD_SOURCE = (ROOT / "examples" / "todo_crud.intent").read_text(encoding="utf-8")
 
+MIGRATION_BASE_SOURCE = """
+module Inventory
+
+entity Item:
+  id: UUID required key
+  name: Text required
+"""
+
 
 class CompilerTest(unittest.TestCase):
     def test_compile_source_builds_content_addressed_graph(self) -> None:
         ir = compile_source(SOURCE)
 
-        self.assertEqual(ir["schemaVersion"], "0.5.0")
+        self.assertEqual(ir["schemaVersion"], "0.6.0")
         self.assertEqual(ir["hashAlgorithm"], "sha256")
         self.assertTrue(ir["moduleId"].startswith("sha256:"))
         self.assertTrue(ir["canonicalHash"].startswith("sha256:"))
@@ -460,6 +474,181 @@ action ChangeEmail:
                 with self.assertRaises(StorageError):
                     with repository.transaction():
                         repository.load(changed)
+
+    def test_safe_migration_adds_default_and_optional_fields(self) -> None:
+        source_ir = compile_source(MIGRATION_BASE_SOURCE)
+        target_ir = compile_source(
+            MIGRATION_BASE_SOURCE.replace(
+                "  name: Text required",
+                "  name: Text required\n  note: Text\n  active: Boolean default true",
+            )
+        )
+        state = {"Item": [{"id": "item-1", "name": "milk"}]}
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "inventory.db"
+            with SQLiteStateRepository(database) as repository:
+                with repository.transaction():
+                    repository.save(source_ir, state)
+                stored = repository.inspect("Inventory")
+                self.assertIsNotNone(stored)
+                plan = plan_migration(stored["schema"], target_ir)
+                repeated = plan_migration(stored["schema"], target_ir)
+
+                self.assertEqual(plan["id"], repeated["id"])
+                self.assertEqual(plan["summary"], {"safe": 2, "destructive": 0, "manual": 0})
+                self.assertTrue(plan["applicable"])
+                with repository.transaction():
+                    migrated = apply_migration(state, plan)
+                    normalized = normalize_state(target_ir, migrated)
+                    repository.save(target_ir, normalized)
+
+                loaded = repository.load(target_ir)
+
+        self.assertEqual(
+            loaded,
+            {"Item": [{"id": "item-1", "name": "milk", "active": True}]},
+        )
+
+    def test_migration_rejects_required_field_without_default(self) -> None:
+        source_ir = compile_source(MIGRATION_BASE_SOURCE)
+        target_ir = compile_source(
+            MIGRATION_BASE_SOURCE.replace(
+                "  name: Text required",
+                "  name: Text required\n  owner: Text required",
+            )
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "inventory.db"
+            original = {"Item": [{"id": "item-1", "name": "milk"}]}
+            with SQLiteStateRepository(database) as repository:
+                with repository.transaction():
+                    repository.save(source_ir, original)
+                stored = repository.inspect("Inventory")
+                plan = plan_migration(stored["schema"], target_ir)
+
+                self.assertFalse(plan["applicable"])
+                self.assertEqual(plan["summary"]["manual"], 1)
+                with self.assertRaises(MigrationError):
+                    with repository.transaction():
+                        migrated = apply_migration(stored["state"], plan)
+                        repository.save(target_ir, migrated)
+                unchanged = repository.load(source_ir)
+
+        self.assertEqual(unchanged, original)
+
+    def test_destructive_migration_requires_explicit_approval(self) -> None:
+        source_ir = compile_source(MIGRATION_BASE_SOURCE)
+        target_ir = compile_source(
+            MIGRATION_BASE_SOURCE.replace("  name: Text required\n", "")
+        )
+        state = {"Item": [{"id": "item-1", "name": "milk"}]}
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "inventory.db"
+            with SQLiteStateRepository(database) as repository:
+                with repository.transaction():
+                    repository.save(source_ir, state)
+                stored = repository.inspect("Inventory")
+                plan = plan_migration(stored["schema"], target_ir)
+
+        self.assertEqual(plan["summary"]["destructive"], 1)
+        with self.assertRaises(MigrationError):
+            apply_migration(state, plan)
+        migrated = apply_migration(state, plan, allow_destructive=True)
+        self.assertEqual(migrated, {"Item": [{"id": "item-1"}]})
+
+    def test_migrate_cli_plans_and_applies_schema_change(self) -> None:
+        source_ir = compile_source(MIGRATION_BASE_SOURCE)
+        target_source = MIGRATION_BASE_SOURCE.replace(
+            "  name: Text required",
+            "  name: Text required\n  active: Boolean default true",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target_path = root / "inventory.intent"
+            target_path.write_text(target_source, encoding="utf-8")
+            database = root / "inventory.db"
+            with SQLiteStateRepository(database) as repository:
+                with repository.transaction():
+                    repository.save(
+                        source_ir,
+                        {"Item": [{"id": "item-1", "name": "milk"}]},
+                    )
+
+            planned = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "intentir",
+                    "migrate",
+                    str(target_path),
+                    "--db",
+                    str(database),
+                    "--json",
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            applied = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "intentir",
+                    "migrate",
+                    str(target_path),
+                    "--db",
+                    str(database),
+                    "--apply",
+                    "--json",
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            with SQLiteStateRepository(database) as repository:
+                stored = repository.inspect("Inventory")
+
+        self.assertEqual(planned.returncode, 0, planned.stderr)
+        self.assertFalse(json.loads(planned.stdout)["applied"])
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertTrue(json.loads(applied.stdout)["applied"])
+        self.assertEqual(stored["schemaHash"], storage_schema_hash(compile_source(target_source)))
+        self.assertEqual(stored["state"]["Item"][0]["active"], True)
+
+    def test_v05_database_can_backfill_schema_snapshot(self) -> None:
+        ir = compile_source(CRUD_SOURCE)
+        state = {"Task": []}
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "legacy.db"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """
+                CREATE TABLE intentir_state (
+                    module TEXT PRIMARY KEY,
+                    schema_hash TEXT NOT NULL,
+                    state_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO intentir_state(module, schema_hash, state_json) VALUES (?, ?, ?)",
+                (ir["module"], storage_schema_hash(ir), json.dumps(state)),
+            )
+            connection.commit()
+            connection.close()
+
+            with SQLiteStateRepository(database) as repository:
+                self.assertEqual(repository.load(ir), state)
+                self.assertIsNone(repository.inspect(ir["module"])["schema"])
+                with repository.transaction():
+                    repository.save(ir, state)
+                stored = repository.inspect(ir["module"])
+
+        self.assertIsNotNone(stored["schema"])
+        self.assertEqual(stored["schemaHash"], storage_schema_hash(ir))
 
     def test_formatter_is_idempotent(self) -> None:
         untidy = ("# module comment\n" + SOURCE).replace("module TodoApp", "module   TodoApp").replace(
