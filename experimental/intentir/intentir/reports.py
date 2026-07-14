@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from intentir.ir import build_ir
 from intentir.parser import ParseError, parse_source
-from intentir.storage import storage_schema_hash
+from intentir.sqlite_projection import sqlite_projection
+from intentir.storage import storage_schema, storage_schema_hash
 from intentir.validator import Diagnostic, collect_diagnostics
 from intentir.verifier import verify_ir
 
@@ -12,6 +13,7 @@ CHECK_ITEMS = [
     "Requirement / Ensure の参照先と型の整合性",
     "Effect の対象、CRUD操作、更新値の型、必須 Field への値の供給",
     "Key / Unique制約、Effect selectorの一意性、Stateの整合性",
+    "SQLite関係表、列型、NOT NULL、Key / Unique制約の決定的投影",
     "Test の Action、Input、リテラル型、期待対象",
     "内容アドレス、依存 Edge、検証義務の決定的生成",
     "事前条件、Effect、事後条件、期待値の実行検証",
@@ -83,6 +85,7 @@ def generate_validation_report(source: str, source_name: str | None = None) -> s
         ]
     )
     if ir is not None:
+        projection = sqlite_projection(ir["module"], storage_schema(ir))
         capabilities = [
             capability
             for node in ir["nodes"]
@@ -98,6 +101,8 @@ def generate_validation_report(source: str, source_name: str | None = None) -> s
                 f"- Module ID: `{ir['moduleId']}`",
                 f"- Canonical Hash: `{ir['canonicalHash']}`",
                 f"- Storage Schema Hash: `{storage_schema_hash(ir)}`",
+                f"- SQLite Projection ID: `{projection['id']}`",
+                f"- SQLite Storage Format: `{projection['storageFormat']}`",
             ]
         )
 

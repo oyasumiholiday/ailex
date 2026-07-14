@@ -19,7 +19,7 @@ Ailex の最も強い点は、AI向け言語の設計判断を実際のモデル
 1. AilexをAIが生成・修復しやすい実行言語または表層投影として使う
 2. その下に、内容アドレス付きの意味グラフを「真実の表現」として置く
 
-このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化、v0.6でSchema SnapshotとMigration IRまで拡張しました。
+このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化、v0.6でSchema SnapshotとMigration IR、v0.7でSQLite関係表投影まで拡張しました。
 
 ## Ailex の強み
 
@@ -232,15 +232,29 @@ Migration操作を`safe / destructive / manual`へ分類します。Optional Fie
 
 `intentir migrate`は既定でPlanだけを表示し、`--apply`が指定された場合だけState変換、対象Schemaでの再検証、Schema Snapshot更新を一つのSQLite Transactionで行います。v0.5 DBはSchema Hashが対象と一致するときに読込を継続し、次回保存時にSnapshotを補完します。
 
+## IntentIR v0.7で追加した改善
+
+### 決定的なSQLite関係表投影
+
+Entityを専用Table、Fieldを型付きColumnへ投影し、物理Table名とProjection IDをModule/Entityの意味から決定的に生成します。`required`、default、Key/Unique、Boolean型などをSQLiteの`NOT NULL / DEFAULT / UNIQUE / CHECK`へ反映しました。
+
+### 関係Stateを正本にするRepository
+
+`relational-v1`ではJSON StateではなくEntity TableのRecordを正本として読込・保存します。Schema SnapshotとStorage Schema Hashはメタデータとして残し、意味Schemaと物理Projectionを別々の内容アドレスで追跡します。
+
+### v0.5/v0.6 DBの段階的変換
+
+旧JSON DBはそのまま読込でき、次の成功したAction保存またはMigration適用時に同じTransaction内で関係Tableへ変換します。Migration失敗時にはTable再構築もRollbackされます。
+
 ## 次の優先順位
 
-### 1. Relational Storage投影
+### 1. 関数、一般式、Module
 
-現在のSQLiteはMigration可能になりましたが、Module Stateは一つのJSONとして保持しています。次はEntity、Field、Key、Uniqueを関係テーブルへ決定的に投影し、Index生成や部分更新にもMigration IRを適用できるようにします。
+GoやPythonに近い適用範囲へ広げるには、純粋関数、型付き式、分岐、反復、Module/importが必要です。ただし、Effectの決定性と構造化診断を維持したまま段階的に追加します。
 
-### 2. 関数、一般式、Module
+### 2. Entity Relationと部分SQL更新
 
-GoやPythonに近い適用範囲へ広げるには、純粋関数、型付き式、分岐、反復、Relation、Module/importが必要です。ただし、Effectの決定性と構造化診断を維持したまま段階的に追加します。
+現在のRepositoryは関係Tableを正本にしますが、ActionごとにModule State全体を読み書きします。次はForeign Keyを持つRelation、Selectorから生成する部分SQL、Index生成へRepository Capabilityを接続します。
 
 ### 3. 明示Capabilityと外部I/O
 

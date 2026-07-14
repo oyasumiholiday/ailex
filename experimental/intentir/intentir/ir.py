@@ -15,7 +15,7 @@ from intentir.expressions import (
 )
 
 
-SCHEMA_VERSION = "0.6.0"
+SCHEMA_VERSION = "0.7.0"
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,7 @@ from intentir.storage import (
     storage_schema,
     storage_schema_hash,
 )
+from intentir.sqlite_projection import render_sqlite_ddl
 from intentir.validator import ValidationError
 from intentir.verifier import normalize_state, run_action, verify_ir
 
@@ -101,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     build = commands.add_parser("build", help="compile a program")
     build.add_argument("source", type=Path)
     build.add_argument(
-        "--target", choices=("typescript", "ir"), default="typescript"
+        "--target", choices=("typescript", "ir", "sqlite"), default="typescript"
     )
     build.add_argument("-o", "--output", type=Path)
 
@@ -182,7 +183,12 @@ def command_run(args: argparse.Namespace) -> None:
                     result = run_action(ir, args.action, inputs, state)
                     if result["ok"]:
                         repository.save(ir, result["state"])
-            result["storage"] = {"kind": "sqlite", "path": str(args.db)}
+                    stored = repository.inspect(ir["module"])
+            result["storage"] = {
+                "kind": "sqlite",
+                "format": stored["storageFormat"] if stored else None,
+                "path": str(args.db),
+            }
         else:
             state = load_json_file(args.state) if args.state else None
             result = run_action(ir, args.action, inputs, state)
@@ -262,6 +268,9 @@ def command_build(args: argparse.Namespace) -> None:
     if args.target == "typescript":
         content = generate_typescript(ir)
         suffix = ".ts"
+    elif args.target == "sqlite":
+        content = render_sqlite_ddl(ir["module"], storage_schema(ir))
+        suffix = ".sql"
     else:
         content = json.dumps(ir, indent=2, ensure_ascii=False) + "\n"
         suffix = ".ir.json"

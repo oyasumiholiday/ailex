@@ -14,9 +14,15 @@ from intentir.formatter import format_source
 from intentir.generators.typescript import generate_typescript
 from intentir.migration import MigrationError, apply_migration, plan_migration
 from intentir.reports import generate_validation_report
+from intentir.sqlite_projection import (
+    RELATIONAL_STORAGE_FORMAT,
+    render_sqlite_ddl,
+    sqlite_projection,
+)
 from intentir.storage import (
     SQLiteStateRepository,
     StorageError,
+    storage_schema,
     storage_schema_hash,
 )
 from intentir.validator import ValidationError
@@ -62,7 +68,7 @@ class CompilerTest(unittest.TestCase):
     def test_compile_source_builds_content_addressed_graph(self) -> None:
         ir = compile_source(SOURCE)
 
-        self.assertEqual(ir["schemaVersion"], "0.6.0")
+        self.assertEqual(ir["schemaVersion"], "0.7.0")
         self.assertEqual(ir["hashAlgorithm"], "sha256")
         self.assertTrue(ir["moduleId"].startswith("sha256:"))
         self.assertTrue(ir["canonicalHash"].startswith("sha256:"))
@@ -460,6 +466,7 @@ action ChangeEmail:
         result = json.loads(complete.stdout)
         self.assertTrue(result["state"]["Task"][0]["done"])
         self.assertEqual(result["storage"]["kind"], "sqlite")
+        self.assertEqual(result["storage"]["format"], RELATIONAL_STORAGE_FORMAT)
 
     def test_sqlite_rejects_changed_entity_schema(self) -> None:
         original = compile_source(CRUD_SOURCE)
@@ -474,6 +481,166 @@ action ChangeEmail:
                 with self.assertRaises(StorageError):
                     with repository.transaction():
                         repository.load(changed)
+
+    def test_sqlite_projection_is_deterministic_and_typed(self) -> None:
+        ir = compile_source(CRUD_SOURCE)
+        schema = storage_schema(ir)
+
+        projection = sqlite_projection(ir["module"], schema)
+        repeated = sqlite_projection(ir["module"], schema)
+        ddl = render_sqlite_ddl(ir["module"], schema)
+
+        self.assertEqual(projection, repeated)
+        self.assertTrue(projection["id"].startswith("sha256:"))
+        self.assertEqual(projection["storageFormat"], RELATIONAL_STORAGE_FORMAT)
+        task = projection["entities"][0]
+        columns = {column["field"]: column for column in task["columns"]}
+        self.assertEqual(columns["id"]["sqliteType"], "TEXT")
+        self.assertTrue(columns["id"]["key"])
+        self.assertTrue(columns["id"]["unique"])
+        self.assertEqual(columns["done"]["sqliteType"], "INTEGER")
+        self.assertIn(f'CREATE TABLE "{task["table"]}"', ddl)
+        self.assertIn('"id" TEXT NOT NULL UNIQUE', ddl)
+        self.assertIn('"done" INTEGER DEFAULT 0', ddl)
+        self.assertIn("IN (0, 1)", ddl)
+
+    def test_sqlite_repository_uses_relational_tables_and_constraints(self) -> None:
+        ir = compile_source(CRUD_SOURCE)
+        state = {
+            "Task": [
+                {"id": "task-1", "title": "first", "done": False},
+                {"id": "task-2", "title": "second", "done": True},
+            ]
+        }
+        projection = sqlite_projection(ir["module"], storage_schema(ir))
+        task = projection["entities"][0]
+        table = task["table"]
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "todo.db"
+            with SQLiteStateRepository(database) as repository:
+                repository.save(ir, state)
+                stored = repository.inspect(ir["module"])
+                metadata = repository.connection.execute(
+                    "SELECT state_json, storage_format FROM intentir_state "
+                    "WHERE module = ?",
+                    (ir["module"],),
+                ).fetchone()
+                columns = repository.connection.execute(
+                    f'PRAGMA table_info("{table}")'
+                ).fetchall()
+                with self.assertRaises(sqlite3.IntegrityError):
+                    repository.connection.execute(
+                        f'INSERT INTO "{table}" ("id", "title", "done") '
+                        "VALUES (?, ?, ?)",
+                        ("task-1", "duplicate", 0),
+                    )
+                with self.assertRaises(sqlite3.IntegrityError):
+                    repository.connection.execute(
+                        f'INSERT INTO "{table}" ("id", "title", "done") '
+                        "VALUES (?, ?, ?)",
+                        ("task-3", "bad boolean", 7),
+                    )
+                loaded = repository.load(ir)
+
+        self.assertEqual(stored["storageFormat"], RELATIONAL_STORAGE_FORMAT)
+        self.assertEqual(metadata, ("{}", RELATIONAL_STORAGE_FORMAT))
+        self.assertEqual(loaded, state)
+        column_names = {column[1] for column in columns}
+        self.assertTrue({"id", "title", "done"} <= column_names)
+
+    def test_v06_json_database_converts_to_relational_storage(self) -> None:
+        ir = compile_source(CRUD_SOURCE)
+        state = {"Task": [{"id": "legacy-1", "title": "legacy", "done": False}]}
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "legacy-v06.db"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """
+                CREATE TABLE intentir_state (
+                    module TEXT PRIMARY KEY,
+                    schema_hash TEXT NOT NULL,
+                    schema_json TEXT,
+                    state_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO intentir_state("
+                "module, schema_hash, schema_json, state_json) VALUES (?, ?, ?, ?)",
+                (
+                    ir["module"],
+                    storage_schema_hash(ir),
+                    canonical_json(storage_schema(ir)),
+                    canonical_json(state),
+                ),
+            )
+            connection.commit()
+            connection.close()
+
+            with SQLiteStateRepository(database) as repository:
+                before = repository.inspect(ir["module"])
+                repository.save(ir, before["state"])
+                after = repository.inspect(ir["module"])
+                relation_count = repository.connection.execute(
+                    "SELECT COUNT(*) FROM intentir_relations WHERE module = ?",
+                    (ir["module"],),
+                ).fetchone()[0]
+
+        self.assertEqual(before["storageFormat"], "json-v1")
+        self.assertEqual(after["storageFormat"], RELATIONAL_STORAGE_FORMAT)
+        self.assertEqual(after["state"], state)
+        self.assertEqual(relation_count, 1)
+
+    def test_sqlite_repository_rejects_unsafe_relation_metadata(self) -> None:
+        ir = compile_source(CRUD_SOURCE)
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "tampered.db"
+            with SQLiteStateRepository(database) as repository:
+                repository.save(ir, {"Task": []})
+                repository.connection.execute(
+                    "CREATE TABLE user_data (value TEXT)"
+                )
+                repository.connection.execute(
+                    "UPDATE intentir_relations SET table_name = 'user_data' "
+                    "WHERE module = ?",
+                    (ir["module"],),
+                )
+                with self.assertRaises(StorageError):
+                    repository.save(ir, {"Task": []})
+                user_table = repository.connection.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'user_data'"
+                ).fetchone()
+
+        self.assertEqual(user_table, ("user_data",))
+
+    def test_build_sqlite_cli_emits_relational_ddl(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "todo.sql"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "intentir",
+                    "build",
+                    str(ROOT / "examples" / "todo_crud.intent"),
+                    "--target",
+                    "sqlite",
+                    "-o",
+                    str(output),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            ddl = output.read_text(encoding="utf-8") if output.exists() else ""
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("IntentIR SQLite projection sha256:", ddl)
+        self.assertIn("CREATE TABLE", ddl)
 
     def test_safe_migration_adds_default_and_optional_fields(self) -> None:
         source_ir = compile_source(MIGRATION_BASE_SOURCE)
@@ -535,6 +702,38 @@ action ChangeEmail:
                 unchanged = repository.load(source_ir)
 
         self.assertEqual(unchanged, original)
+
+    def test_relational_migration_table_rebuild_rolls_back(self) -> None:
+        source_ir = compile_source(MIGRATION_BASE_SOURCE)
+        target_ir = compile_source(
+            MIGRATION_BASE_SOURCE.replace(
+                "  name: Text required",
+                "  name: Text required\n  active: Boolean default true",
+            )
+        )
+        original = {"Item": [{"id": "item-1", "name": "milk"}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "rollback.db"
+            with SQLiteStateRepository(database) as repository:
+                repository.save(source_ir, original)
+                stored = repository.inspect("Inventory")
+                plan = plan_migration(stored["schema"], target_ir)
+                with self.assertRaises(RuntimeError):
+                    with repository.transaction():
+                        migrated = apply_migration(stored["state"], plan)
+                        repository.save(target_ir, migrated)
+                        raise RuntimeError("abort after relational table rebuild")
+                restored = repository.load(source_ir)
+                restored_metadata = repository.inspect("Inventory")
+                with self.assertRaises(StorageError):
+                    repository.load(target_ir)
+
+        self.assertEqual(restored, original)
+        self.assertEqual(restored_metadata["schemaHash"], storage_schema_hash(source_ir))
+        self.assertEqual(
+            restored_metadata["storageFormat"], RELATIONAL_STORAGE_FORMAT
+        )
 
     def test_destructive_migration_requires_explicit_approval(self) -> None:
         source_ir = compile_source(MIGRATION_BASE_SOURCE)
@@ -616,6 +815,7 @@ action ChangeEmail:
         self.assertTrue(json.loads(applied.stdout)["applied"])
         self.assertEqual(stored["schemaHash"], storage_schema_hash(compile_source(target_source)))
         self.assertEqual(stored["state"]["Item"][0]["active"], True)
+        self.assertEqual(stored["storageFormat"], RELATIONAL_STORAGE_FORMAT)
 
     def test_v05_database_can_backfill_schema_snapshot(self) -> None:
         ir = compile_source(CRUD_SOURCE)
@@ -649,6 +849,7 @@ action ChangeEmail:
 
         self.assertIsNotNone(stored["schema"])
         self.assertEqual(stored["schemaHash"], storage_schema_hash(ir))
+        self.assertEqual(stored["storageFormat"], RELATIONAL_STORAGE_FORMAT)
 
     def test_formatter_is_idempotent(self) -> None:
         untidy = ("# module comment\n" + SOURCE).replace("module TodoApp", "module   TodoApp").replace(
@@ -702,6 +903,8 @@ action ChangeEmail:
         self.assertIn("- 検証義務: 2", report)
         self.assertIn("- Canonical Hash: `sha256:", report)
         self.assertIn("- Storage Schema Hash: `sha256:", report)
+        self.assertIn("- SQLite Projection ID: `sha256:", report)
+        self.assertIn("- SQLite Storage Format: `relational-v1`", report)
 
     def test_validation_report_includes_runtime_failure(self) -> None:
         source = SOURCE.replace(
