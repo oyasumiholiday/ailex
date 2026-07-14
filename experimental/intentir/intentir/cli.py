@@ -24,10 +24,20 @@ from intentir.storage import (
 )
 from intentir.sqlite_projection import render_sqlite_ddl
 from intentir.validator import ValidationError
-from intentir.verifier import normalize_state, run_action, verify_ir
+from intentir.verifier import normalize_state, run_action, run_function, verify_ir
 
 
-COMMANDS = {"check", "test", "run", "migrate", "build", "fmt", "report", "ir"}
+COMMANDS = {
+    "check",
+    "test",
+    "call",
+    "run",
+    "migrate",
+    "build",
+    "fmt",
+    "report",
+    "ir",
+}
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -49,6 +59,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     handlers = {
         "check": command_check,
         "test": command_test,
+        "call": command_call,
         "run": command_run,
         "migrate": command_migrate,
         "build": command_build,
@@ -62,7 +73,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="intentir",
-        description="Compile, check, run, and format IntentIR programs.",
+        description="Compile, check, call, run, and format IntentIR programs.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command")
@@ -74,6 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
     test = commands.add_parser("test", help="run executable IntentIR tests")
     test.add_argument("source", type=Path)
     test.add_argument("--json", action="store_true", help="emit structured output")
+
+    call = commands.add_parser("call", help="evaluate one pure function")
+    call.add_argument("source", type=Path)
+    call.add_argument("function")
+    call.add_argument(
+        "--input",
+        default="{}",
+        help="JSON object or @path/to/input.json",
+    )
 
     run = commands.add_parser("run", help="execute one action against a JSON store")
     run.add_argument("source", type=Path)
@@ -166,6 +186,29 @@ def command_test(args: argparse.Namespace) -> None:
             f"{summary['passed']} passed, {summary['failed']} failed, "
             f"{summary['tests']} total"
         )
+        for example in result["functionExamples"]:
+            print(f"{'ok' if example['ok'] else 'FAIL'}  {example['name']}")
+            for error in example["errors"]:
+                print(f"      {error['messageJa']}")
+        if result["functionExamples"]:
+            print(
+                f"{summary['functionExamplesPassed']} function examples passed, "
+                f"{summary['functionExamplesFailed']} failed, "
+                f"{summary['functionExamples']} total"
+            )
+    if not result["ok"]:
+        raise SystemExit(1)
+
+
+def command_call(args: argparse.Namespace) -> None:
+    ir = compile_path(args.source)
+    try:
+        inputs = load_json_argument(args.input)
+        result = run_function(ir, args.function, inputs)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+    print(json.dumps(result, indent=2, ensure_ascii=False))
     if not result["ok"]:
         raise SystemExit(1)
 

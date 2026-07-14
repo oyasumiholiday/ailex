@@ -1,0 +1,37 @@
+module FunctionDemo
+
+function Double:
+  input:
+    value: Integer required
+  returns: Integer
+  body: value * 2
+  examples:
+    Double(value=4) equals 8
+
+function Clamp:
+  input:
+    value: Integer required
+    minimum: Integer required
+    maximum: Integer required
+  returns: Integer
+  body: minimum if value < minimum else maximum if value > maximum else value
+  examples:
+    Clamp(value=-2, minimum=0, maximum=10) equals 0
+    Clamp(value=12, minimum=0, maximum=10) equals 10
+
+function ClampDouble:
+  input:
+    value: Integer required
+  returns: Integer
+  body: Clamp(Double(value), minimum=0, maximum=10)
+  examples:
+    ClampDouble(value=7) equals 10
+
+function Greeting:
+  input:
+    name: Text required
+    prefix: Text default "Hello, "
+  returns: Text
+  body: prefix + name
+  examples:
+    Greeting(name="IntentIR") equals "Hello, IntentIR"

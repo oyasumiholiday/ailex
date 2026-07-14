@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import json
 
-from intentir.ir import ActionSpec, EntitySpec, FieldSpec, ProgramSpec, TestSpec
+from intentir.ir import (
+    ActionSpec,
+    EntitySpec,
+    FieldSpec,
+    FunctionSpec,
+    ProgramSpec,
+    TestSpec,
+)
 from intentir.parser import parse_source
 
 
@@ -14,6 +21,7 @@ def format_source(source: str) -> str:
 def format_program(program: ProgramSpec) -> str:
     blocks = [f"module {program.module}"]
     blocks.extend(format_entity(entity) for entity in program.entities)
+    blocks.extend(format_function(function) for function in program.functions)
     blocks.extend(format_action(action) for action in program.actions)
     blocks.extend(format_test(test) for test in program.tests)
     return "\n\n".join(blocks) + "\n"
@@ -22,6 +30,15 @@ def format_program(program: ProgramSpec) -> str:
 def format_entity(entity: EntitySpec) -> str:
     lines = [f"entity {entity.name}:"]
     lines.extend(f"  {format_field(field)}" for field in entity.fields)
+    return "\n".join(lines)
+
+
+def format_function(function: FunctionSpec) -> str:
+    lines = [f"function {function.name}:"]
+    append_section(lines, "input", [format_field(field) for field in function.inputs])
+    lines.append(f"  returns: {function.return_type}")
+    lines.append(f"  body: {function.body}")
+    append_section(lines, "examples", function.examples)
     return "\n".join(lines)
 
 

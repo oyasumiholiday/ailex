@@ -11,6 +11,7 @@ from intentir.verifier import verify_ir
 CHECK_ITEMS = [
     "重複定義、シンボル衝突、組み込み型、デフォルト値",
     "Requirement / Ensure の参照先と型の整合性",
+    "純粋FunctionのInput、Return、式、呼出し、循環依存、Example",
     "Effect の対象、CRUD操作、更新値の型、必須 Field への値の供給",
     "Key / Unique制約、Effect selectorの一意性、Stateの整合性",
     "SQLite関係表、列型、NOT NULL、Key / Unique制約の決定的投影",
@@ -80,8 +81,10 @@ def generate_validation_report(source: str, source_name: str | None = None) -> s
             "## 概要",
             "",
             f"- Entity: {len(program.entities)}",
+            f"- Function: {len(program.functions)}",
             f"- Action: {len(program.actions)}",
             f"- Test: {len(program.tests)}",
+            f"- Function Example: {sum(len(function.examples) for function in program.functions)}",
         ]
     )
     if ir is not None:
@@ -127,6 +130,24 @@ def generate_validation_report(source: str, source_name: str | None = None) -> s
             mark = "成功" if test["ok"] else "失敗"
             lines.append(f"- `{test['name']}`: {mark}")
             for error in test["errors"]:
+                lines.append(f"  - {error['messageJa']}")
+                lines.append(f"  - 義務ID: `{error['obligationId']}`")
+
+    lines.extend(["", "## 純粋Function検証", ""])
+    if verification is None:
+        lines.append("- 静的検証に失敗したため実行していません。")
+    elif not verification["functionExamples"]:
+        lines.append("- Function Example はありません。")
+    else:
+        summary = verification["summary"]
+        lines.append(
+            f"- {summary['functionExamplesPassed']} / "
+            f"{summary['functionExamples']} Function Example 成功"
+        )
+        for example in verification["functionExamples"]:
+            mark = "成功" if example["ok"] else "失敗"
+            lines.append(f"- `{example['name']}`: {mark}")
+            for error in example["errors"]:
                 lines.append(f"  - {error['messageJa']}")
                 lines.append(f"  - 義務ID: `{error['obligationId']}`")
 

@@ -3,7 +3,14 @@ from __future__ import annotations
 import ast
 import re
 
-from intentir.ir import ActionSpec, EntitySpec, FieldSpec, ProgramSpec, TestSpec
+from intentir.ir import (
+    ActionSpec,
+    EntitySpec,
+    FieldSpec,
+    FunctionSpec,
+    ProgramSpec,
+    TestSpec,
+)
 
 
 class ParseError(ValueError):
@@ -31,6 +38,7 @@ def parse_source(source: str) -> ProgramSpec:
         raise ParseError(f"invalid module name on line {module_line.number}: {module}")
 
     entities: list[EntitySpec] = []
+    functions: list[FunctionSpec] = []
     actions: list[ActionSpec] = []
     tests: list[TestSpec] = []
 
@@ -43,6 +51,9 @@ def parse_source(source: str) -> ProgramSpec:
         if line.text.startswith("entity ") and line.text.endswith(":"):
             entity, index = parse_entity(lines, index)
             entities.append(entity)
+        elif line.text.startswith("function ") and line.text.endswith(":"):
+            function, index = parse_function(lines, index)
+            functions.append(function)
         elif line.text.startswith("action ") and line.text.endswith(":"):
             action, index = parse_action(lines, index)
             actions.append(action)
@@ -52,7 +63,13 @@ def parse_source(source: str) -> ProgramSpec:
         else:
             raise ParseError(f"unknown top-level statement on line {line.number}: {line.text}")
 
-    return ProgramSpec(module=module, entities=entities, actions=actions, tests=tests)
+    return ProgramSpec(
+        module=module,
+        entities=entities,
+        functions=functions,
+        actions=actions,
+        tests=tests,
+    )
 
 
 def parse_entity(lines: list["Line"], index: int) -> tuple[EntitySpec, int]:
@@ -66,6 +83,64 @@ def parse_entity(lines: list["Line"], index: int) -> tuple[EntitySpec, int]:
         fields.append(parse_field(line.text, line.number))
         index += 1
     return EntitySpec(name=name, fields=fields), index
+
+
+def parse_function(lines: list["Line"], index: int) -> tuple[FunctionSpec, int]:
+    name = identifier_block_name(lines[index], "function")
+    inputs: list[FieldSpec] = []
+    return_type: str | None = None
+    body: str | None = None
+    examples: list[str] = []
+
+    index += 1
+    while index < len(lines) and lines[index].indent > 0:
+        section = lines[index]
+        if section.indent != 2:
+            raise ParseError(
+                f"function entries must be indented by two spaces on line {section.number}"
+            )
+        if section.text.startswith("returns:"):
+            if return_type is not None:
+                raise ParseError(f"duplicate function returns on line {section.number}")
+            return_type = section.text.removeprefix("returns:").strip()
+            if not IDENTIFIER_RE.fullmatch(return_type):
+                raise ParseError(f"invalid return type on line {section.number}")
+            index += 1
+            continue
+        if section.text.startswith("body:"):
+            if body is not None:
+                raise ParseError(f"duplicate function body on line {section.number}")
+            body = section.text.removeprefix("body:").strip()
+            if not body:
+                raise ParseError(f"function body is required on line {section.number}")
+            index += 1
+            continue
+        if section.text not in {"input:", "examples:"}:
+            raise ParseError(
+                f"unknown function section on line {section.number}: {section.text}"
+            )
+
+        section_name = section.text[:-1]
+        index += 1
+        values: list[tuple[str, int]] = []
+        while index < len(lines) and lines[index].indent > 2:
+            item = lines[index]
+            if item.indent != 4:
+                raise ParseError(
+                    f"function section entries must be indented by four spaces on line {item.number}"
+                )
+            values.append((item.text, item.number))
+            index += 1
+        if section_name == "input":
+            inputs.extend(parse_field(value, number) for value, number in values)
+        else:
+            examples.extend(value for value, _number in values)
+
+    if return_type is None:
+        raise ParseError(f"function {name} is missing returns")
+    if body is None:
+        raise ParseError(f"function {name} is missing body")
+    return FunctionSpec(name, inputs, return_type, body, examples), index
 
 
 def parse_action(lines: list["Line"], index: int) -> tuple[ActionSpec, int]:

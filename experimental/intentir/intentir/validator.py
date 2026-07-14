@@ -16,7 +16,21 @@ from intentir.expressions import (
     referenced_entity_fields,
     referenced_inputs,
 )
-from intentir.ir import ActionSpec, EntitySpec, FieldSpec, ProgramSpec, TestSpec, slug
+from intentir.ir import (
+    ActionSpec,
+    EntitySpec,
+    FieldSpec,
+    FunctionSpec,
+    ProgramSpec,
+    TestSpec,
+    slug,
+)
+from intentir.pure import (
+    PURE_RESERVED_NAMES,
+    function_references,
+    parse_function_example,
+    parse_pure_expression,
+)
 
 
 BUILTIN_TYPES = {"Boolean", "Integer", "Number", "Text", "UUID"}
@@ -66,17 +80,511 @@ def validate_program(program: ProgramSpec) -> None:
 def collect_diagnostics(program: ProgramSpec) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     entities = index_named(program.entities, "entity", "/entities", diagnostics)
+    functions = index_named(program.functions, "function", "/functions", diagnostics)
     actions = index_named(program.actions, "action", "/actions", diagnostics)
     index_named(program.tests, "test", "/tests", diagnostics)
     validate_test_symbols(program.tests, diagnostics)
 
     for entity in program.entities:
         validate_entity(entity, diagnostics)
+    validate_value_symbol_collisions(functions, actions, diagnostics)
+    for function in program.functions:
+        validate_function(function, functions, diagnostics)
+    validate_function_cycles(program.functions, functions, diagnostics)
     for action in program.actions:
         validate_action(action, entities, diagnostics)
     for test in program.tests:
         validate_test(test, actions, entities, diagnostics)
     return diagnostics
+
+
+def validate_function(
+    function: FunctionSpec,
+    functions: dict[str, FunctionSpec],
+    diagnostics: list[Diagnostic],
+) -> None:
+    path = f"/functions/{function.name}"
+    if function.name in PURE_RESERVED_NAMES:
+        diagnostics.append(
+            make_diagnostic(
+                "reserved_function_name",
+                f"function name {function.name} is reserved",
+                f"Function名 `{function.name}` は純粋式の予約語です。",
+                path,
+                (),
+                "Rename the function.",
+            )
+        )
+    inputs = index_function_inputs(function, diagnostics)
+    for input_spec in function.inputs:
+        input_path = f"{path}/inputs/{input_spec.name}"
+        validate_type(input_spec.type_name, input_path, diagnostics)
+        validate_default(input_spec, input_path, diagnostics)
+        if input_spec.name in PURE_RESERVED_NAMES:
+            diagnostics.append(
+                make_diagnostic(
+                    "reserved_function_input",
+                    f"function input {function.name}.{input_spec.name} is reserved",
+                    f"Function Input `{function.name}.{input_spec.name}` は純粋式の予約語です。",
+                    input_path,
+                    inputs,
+                    "Rename the input.",
+                )
+            )
+        if input_spec.key or input_spec.unique:
+            diagnostics.append(
+                make_diagnostic(
+                    "function_input_constraint_not_allowed",
+                    f"function input {function.name}.{input_spec.name} cannot be key or unique",
+                    f"Function Input `{function.name}.{input_spec.name}` に `key` または `unique` は指定できません。",
+                    input_path,
+                    (),
+                    "Move identity constraints to an entity field.",
+                )
+            )
+        if not input_spec.required and input_spec.default is None:
+            diagnostics.append(
+                make_diagnostic(
+                    "unresolved_function_input",
+                    f"function input {function.name}.{input_spec.name} must be required or have a default",
+                    f"Function Input `{function.name}.{input_spec.name}` は `required` またはdefault付きである必要があります。",
+                    input_path,
+                    ("required", "default"),
+                    "Mark the input required or add a default value.",
+                )
+            )
+
+    validate_type(function.return_type, f"{path}/returns", diagnostics)
+    try:
+        expression = parse_pure_expression(function.body)
+    except ExpressionError as error:
+        diagnostics.append(
+            make_diagnostic(
+                "unsupported_function_expression",
+                f"function {function.name} has {error}",
+                f"Function `{function.name}` の式には対応していません: `{error}`",
+                f"{path}/body",
+                inputs,
+                "Use literals, inputs, pure calls, arithmetic, comparisons, booleans, or a conditional expression.",
+            )
+        )
+        expression = None
+
+    if expression is not None:
+        actual_type = infer_pure_type(
+            expression,
+            {name: field.type_name for name, field in inputs.items()},
+            functions,
+            diagnostics,
+            f"{path}/body",
+        )
+        if actual_type and not compatible_types(actual_type, function.return_type):
+            diagnostics.append(
+                make_diagnostic(
+                    "function_return_type_mismatch",
+                    f"function {function.name} returns {actual_type}, expected {function.return_type}",
+                    f"Function `{function.name}` のBodyは `{actual_type}` ですが、Return型は `{function.return_type}` です。",
+                    f"{path}/body",
+                    (function.return_type,),
+                    "Change the body expression or declared return type.",
+                )
+            )
+
+    for index, source in enumerate(function.examples):
+        example_path = f"{path}/examples/{index}"
+        try:
+            example = parse_function_example(source)
+        except ExpressionError as error:
+            diagnostics.append(
+                make_diagnostic(
+                    "invalid_function_example",
+                    f"function {function.name} example has {error}",
+                    f"Function `{function.name}` のExampleは不正です: `{error}`",
+                    example_path,
+                    functions,
+                    "Use `Function(name=value) equals literal`.",
+                )
+            )
+            continue
+        call_type = infer_pure_type(
+            example["call"], {}, functions, diagnostics, f"{example_path}/call"
+        )
+        expected_type = example["expected"]["type"]
+        if call_type and not compatible_types(call_type, expected_type):
+            diagnostics.append(
+                make_diagnostic(
+                    "function_example_type_mismatch",
+                    f"function example returns {call_type}, expected literal is {expected_type}",
+                    f"Function ExampleのReturn型は `{call_type}` ですが、期待値は `{expected_type}` です。",
+                    f"{example_path}/expected",
+                    (call_type,),
+                    "Use an expected literal compatible with the function return type.",
+                )
+            )
+
+
+def infer_pure_type(
+    expression: dict[str, Any],
+    variables: dict[str, str],
+    functions: dict[str, FunctionSpec],
+    diagnostics: list[Diagnostic],
+    path: str,
+) -> str | None:
+    kind = expression.get("kind")
+    if kind == "literal":
+        return expression["type"]
+    if kind == "variable":
+        name = expression["name"]
+        if name not in variables:
+            diagnostics.append(
+                make_diagnostic(
+                    "unknown_function_variable",
+                    f"unknown function variable {name}",
+                    f"Function式の変数 `{name}` は定義されていません。",
+                    path,
+                    variables,
+                    "Choose an input from scope.",
+                )
+            )
+            return None
+        return variables[name]
+    if kind == "function_call":
+        return infer_function_call(
+            expression, variables, functions, diagnostics, path
+        )
+    if kind == "binary":
+        left = infer_pure_type(
+            expression["left"], variables, functions, diagnostics, f"{path}/left"
+        )
+        right = infer_pure_type(
+            expression["right"], variables, functions, diagnostics, f"{path}/right"
+        )
+        if not left or not right:
+            return None
+        operator = expression["op"]
+        if operator == "add" and left == right == "Text":
+            return "Text"
+        if left in {"Integer", "Number"} and right in {"Integer", "Number"}:
+            if operator == "divide" or "Number" in {left, right}:
+                return "Number"
+            return "Integer"
+        add_pure_type_error(
+            diagnostics, "binary", operator, left, right, path
+        )
+        return None
+    if kind == "comparison":
+        left = infer_pure_type(
+            expression["left"], variables, functions, diagnostics, f"{path}/left"
+        )
+        right = infer_pure_type(
+            expression["right"], variables, functions, diagnostics, f"{path}/right"
+        )
+        if left and right:
+            ordered = expression["op"] not in {"equal", "not_equal"}
+            orderable = (
+                {left, right} <= {"Integer", "Number"}
+                or {left, right} <= {"Text", "UUID"}
+            )
+            if (ordered and not orderable) or (
+                not ordered and not compatible_types(left, right)
+            ):
+                add_pure_type_error(
+                    diagnostics, "comparison", expression["op"], left, right, path
+                )
+        return "Boolean"
+    if kind == "boolean":
+        for index, value in enumerate(expression["values"]):
+            value_type = infer_pure_type(
+                value, variables, functions, diagnostics, f"{path}/values/{index}"
+            )
+            if value_type and value_type != "Boolean":
+                add_pure_type_error(
+                    diagnostics,
+                    "boolean",
+                    expression["op"],
+                    value_type,
+                    "Boolean",
+                    f"{path}/values/{index}",
+                )
+        return "Boolean"
+    if kind == "unary":
+        value_type = infer_pure_type(
+            expression["value"], variables, functions, diagnostics, f"{path}/value"
+        )
+        if not value_type:
+            return None
+        valid = (
+            value_type == "Boolean"
+            if expression["op"] == "not"
+            else value_type in {"Integer", "Number"}
+        )
+        if not valid:
+            add_pure_type_error(
+                diagnostics,
+                "unary",
+                expression["op"],
+                value_type,
+                "Boolean" if expression["op"] == "not" else "Number",
+                path,
+            )
+            return None
+        return value_type
+    if kind == "conditional":
+        condition_type = infer_pure_type(
+            expression["condition"],
+            variables,
+            functions,
+            diagnostics,
+            f"{path}/condition",
+        )
+        then_type = infer_pure_type(
+            expression["then"], variables, functions, diagnostics, f"{path}/then"
+        )
+        else_type = infer_pure_type(
+            expression["else"], variables, functions, diagnostics, f"{path}/else"
+        )
+        if condition_type and condition_type != "Boolean":
+            add_pure_type_error(
+                diagnostics,
+                "conditional",
+                "condition",
+                condition_type,
+                "Boolean",
+                f"{path}/condition",
+            )
+        if then_type and else_type and not compatible_types(then_type, else_type):
+            add_pure_type_error(
+                diagnostics,
+                "conditional",
+                "branches",
+                then_type,
+                else_type,
+                path,
+            )
+            return None
+        if {then_type, else_type} == {"Integer", "Number"}:
+            return "Number"
+        return then_type or else_type
+    diagnostics.append(
+        make_diagnostic(
+            "unknown_pure_expression",
+            f"unknown pure expression kind {kind}",
+            f"未対応の純粋式Kindです: `{kind}`",
+            path,
+            (),
+            "Use a supported pure expression.",
+        )
+    )
+    return None
+
+
+def infer_function_call(
+    call: dict[str, Any],
+    variables: dict[str, str],
+    functions: dict[str, FunctionSpec],
+    diagnostics: list[Diagnostic],
+    path: str,
+) -> str | None:
+    function = functions.get(call["function"])
+    if function is None:
+        diagnostics.append(
+            make_diagnostic(
+                "unknown_function",
+                f"unknown function {call['function']}",
+                f"Function `{call['function']}` は定義されていません。",
+                path,
+                functions,
+                "Choose a function from scope.",
+            )
+        )
+        return None
+
+    inputs = function.inputs
+    bound: dict[str, dict[str, Any]] = {}
+    if len(call["args"]) > len(inputs):
+        diagnostics.append(
+            make_diagnostic(
+                "too_many_function_arguments",
+                f"function {function.name} received too many positional arguments",
+                f"Function `{function.name}` の位置引数が多すぎます。",
+                path,
+                (field.name for field in inputs),
+                "Remove extra arguments or use declared input names.",
+            )
+        )
+    for field, argument in zip(inputs, call["args"]):
+        bound[field.name] = argument
+
+    input_map = {field.name: field for field in inputs}
+    for keyword in call["kwargs"]:
+        name = keyword["name"]
+        if name not in input_map:
+            diagnostics.append(
+                make_diagnostic(
+                    "unknown_function_argument",
+                    f"function {function.name} has no input {name}",
+                    f"Function `{function.name}` にInput `{name}` はありません。",
+                    f"{path}/kwargs/{name}",
+                    input_map,
+                    "Choose an input from scope.",
+                )
+            )
+            continue
+        if name in bound:
+            diagnostics.append(
+                make_diagnostic(
+                    "duplicate_function_argument",
+                    f"function {function.name} input {name} is passed more than once",
+                    f"Function `{function.name}` のInput `{name}` が複数回渡されています。",
+                    f"{path}/kwargs/{name}",
+                    input_map,
+                    "Pass each input once.",
+                )
+            )
+            continue
+        bound[name] = keyword["value"]
+
+    for field in inputs:
+        argument = bound.get(field.name)
+        if argument is None:
+            if field.default is None:
+                diagnostics.append(
+                    make_diagnostic(
+                        "missing_function_argument",
+                        f"function {function.name} requires input {field.name}",
+                        f"Function `{function.name}` にInput `{field.name}` がありません。",
+                        path,
+                        input_map,
+                        "Pass the required input.",
+                    )
+                )
+            continue
+        argument_type = infer_pure_type(
+            argument,
+            variables,
+            functions,
+            diagnostics,
+            f"{path}/arguments/{field.name}",
+        )
+        if argument_type and not compatible_types(argument_type, field.type_name):
+            diagnostics.append(
+                make_diagnostic(
+                    "function_argument_type_mismatch",
+                    f"function {function.name} input {field.name} expects {field.type_name}, got {argument_type}",
+                    f"Function `{function.name}` のInput `{field.name}` は `{field.type_name}` を期待しますが、`{argument_type}` が渡されています。",
+                    f"{path}/arguments/{field.name}",
+                    (field.type_name,),
+                    "Pass a compatible expression.",
+                )
+            )
+    return function.return_type
+
+
+def validate_function_cycles(
+    function_specs: list[FunctionSpec],
+    functions: dict[str, FunctionSpec],
+    diagnostics: list[Diagnostic],
+) -> None:
+    graph: dict[str, set[str]] = {}
+    for function in function_specs:
+        try:
+            expression = parse_pure_expression(function.body)
+        except ExpressionError:
+            continue
+        graph[function.name] = {
+            name for name in function_references(expression) if name in functions
+        }
+
+    reported: set[tuple[str, ...]] = set()
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visiting:
+            start = visiting.index(name)
+            cycle = visiting[start:] + [name]
+            key = tuple(sorted(set(cycle)))
+            if key not in reported:
+                reported.add(key)
+                diagnostics.append(
+                    make_diagnostic(
+                        "recursive_function_cycle",
+                        f"recursive function cycle: {' -> '.join(cycle)}",
+                        f"再帰Function Cycleは未対応です: `{' -> '.join(cycle)}`",
+                        f"/functions/{name}/body",
+                        functions,
+                        "Remove the cycle; recursion will be added with explicit termination obligations.",
+                    )
+                )
+            return
+        if name in visited:
+            return
+        visiting.append(name)
+        for target in sorted(graph.get(name, set())):
+            visit(target)
+        visiting.pop()
+        visited.add(name)
+
+    for function_name in sorted(graph):
+        visit(function_name)
+
+
+def validate_value_symbol_collisions(
+    functions: dict[str, FunctionSpec],
+    actions: dict[str, ActionSpec],
+    diagnostics: list[Diagnostic],
+) -> None:
+    for name in sorted(set(functions) & set(actions)):
+        diagnostics.append(
+            make_diagnostic(
+                "value_symbol_collision",
+                f"function and action share value symbol {name}",
+                f"FunctionとActionが同じ値シンボル `{name}` を使用しています。",
+                f"/functions/{name}",
+                set(functions) | set(actions),
+                "Rename the function or action.",
+            )
+        )
+
+
+def index_function_inputs(
+    function: FunctionSpec, diagnostics: list[Diagnostic]
+) -> dict[str, FieldSpec]:
+    result: dict[str, FieldSpec] = {}
+    for field in function.inputs:
+        if field.name in result:
+            diagnostics.append(
+                make_diagnostic(
+                    "duplicate_function_input",
+                    f"function {function.name} defines input {field.name} more than once",
+                    f"Function `{function.name}` のInput `{field.name}` が重複しています。",
+                    f"/functions/{function.name}/inputs/{field.name}",
+                    result,
+                    "Remove or rename one of the inputs.",
+                )
+            )
+        result[field.name] = field
+    return result
+
+
+def add_pure_type_error(
+    diagnostics: list[Diagnostic],
+    kind: str,
+    operator: str,
+    left: str,
+    right: str,
+    path: str,
+) -> None:
+    diagnostics.append(
+        make_diagnostic(
+            "pure_expression_type_mismatch",
+            f"{kind} operator {operator} does not accept {left} and {right}",
+            f"{kind}演算子 `{operator}` は `{left}` と `{right}` に適用できません。",
+            path,
+            ("Boolean", "Integer", "Number", "Text", "UUID"),
+            "Use operands compatible with the operator.",
+        )
+    )
 
 
 def validate_entity(entity: EntitySpec, diagnostics: list[Diagnostic]) -> None:

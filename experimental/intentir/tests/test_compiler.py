@@ -26,7 +26,7 @@ from intentir.storage import (
     storage_schema_hash,
 )
 from intentir.validator import ValidationError
-from intentir.verifier import normalize_state, run_action, verify_ir
+from intentir.verifier import normalize_state, run_action, run_function, verify_ir
 
 
 SOURCE = """
@@ -54,6 +54,9 @@ test "creates task":
 
 ROOT = Path(__file__).resolve().parents[1]
 CRUD_SOURCE = (ROOT / "examples" / "todo_crud.intent").read_text(encoding="utf-8")
+FUNCTION_SOURCE = (ROOT / "examples" / "functions.intent").read_text(
+    encoding="utf-8"
+)
 
 MIGRATION_BASE_SOURCE = """
 module Inventory
@@ -68,7 +71,7 @@ class CompilerTest(unittest.TestCase):
     def test_compile_source_builds_content_addressed_graph(self) -> None:
         ir = compile_source(SOURCE)
 
-        self.assertEqual(ir["schemaVersion"], "0.7.0")
+        self.assertEqual(ir["schemaVersion"], "0.8.0")
         self.assertEqual(ir["hashAlgorithm"], "sha256")
         self.assertTrue(ir["moduleId"].startswith("sha256:"))
         self.assertTrue(ir["canonicalHash"].startswith("sha256:"))
@@ -110,6 +113,171 @@ class CompilerTest(unittest.TestCase):
         )
         self.assertEqual(len(ir["obligations"]), 2)
         json.dumps(ir)
+
+    def test_pure_functions_build_calls_edges_and_example_obligations(self) -> None:
+        ir = compile_source(FUNCTION_SOURCE)
+        functions = {
+            node["name"]: node
+            for node in ir["nodes"]
+            if node["kind"] == "function"
+        }
+
+        self.assertEqual(set(functions), {"Clamp", "ClampDouble", "Double", "Greeting"})
+        self.assertEqual(functions["Double"]["returnType"], "Integer")
+        self.assertEqual(
+            functions["Double"]["body"]["expression"]["op"], "multiply"
+        )
+        call_edges = {
+            (edge["fromSymbol"], edge["toSymbol"])
+            for edge in ir["edges"]
+            if edge["kind"] == "calls"
+        }
+        self.assertEqual(
+            call_edges,
+            {
+                ("function:ClampDouble", "function:Clamp"),
+                ("function:ClampDouble", "function:Double"),
+            },
+        )
+        function_obligations = [
+            obligation
+            for obligation in ir["obligations"]
+            if obligation["kind"] == "function_example"
+        ]
+        self.assertEqual(len(function_obligations), 5)
+
+    def test_function_hash_ignores_named_argument_order(self) -> None:
+        reordered = FUNCTION_SOURCE.replace(
+            "Clamp(value=12, minimum=0, maximum=10) equals 10",
+            "Clamp(maximum=10, value=12, minimum=0) equals 10",
+        )
+
+        first = compile_source(FUNCTION_SOURCE)
+        second = compile_source(reordered)
+
+        self.assertEqual(first["canonicalHash"], second["canonicalHash"])
+
+    def test_run_function_supports_defaults_nested_calls_and_conditionals(self) -> None:
+        ir = compile_source(FUNCTION_SOURCE)
+
+        nested = run_function(ir, "ClampDouble", {"value": 7})
+        defaulted = run_function(ir, "Greeting", {"name": "AI"})
+        invalid = run_function(ir, "Double", {"value": "wrong"})
+
+        self.assertEqual(nested["result"], 10)
+        self.assertEqual(defaulted["result"], "Hello, AI")
+        self.assertFalse(invalid["ok"])
+        self.assertEqual(
+            invalid["errors"][0]["code"], "function_argument_type_mismatch"
+        )
+
+    def test_function_validation_rejects_type_errors_and_recursive_cycles(self) -> None:
+        type_error = FUNCTION_SOURCE.replace(
+            "body: value * 2", 'body: value + "x"', 1
+        )
+        recursive = """
+module Recursive
+
+function Loop:
+  input:
+    value: Integer required
+  returns: Integer
+  body: Loop(value)
+"""
+        reserved = """
+module Reserved
+
+function Identity:
+  input:
+    true: Boolean required
+  returns: Boolean
+  body: true
+"""
+
+        with self.assertRaises(ValidationError) as type_context:
+            compile_source(type_error)
+        with self.assertRaises(ValidationError) as cycle_context:
+            compile_source(recursive)
+        with self.assertRaises(ValidationError) as reserved_context:
+            compile_source(reserved)
+
+        self.assertIn(
+            "pure_expression_type_mismatch",
+            {diagnostic.code for diagnostic in type_context.exception.diagnostics},
+        )
+        self.assertIn(
+            "recursive_function_cycle",
+            {diagnostic.code for diagnostic in cycle_context.exception.diagnostics},
+        )
+        self.assertIn(
+            "reserved_function_input",
+            {diagnostic.code for diagnostic in reserved_context.exception.diagnostics},
+        )
+
+    def test_function_formatter_is_idempotent(self) -> None:
+        untidy = FUNCTION_SOURCE.replace(
+            "value: Integer required", "value:Integer   required"
+        )
+
+        formatted = format_source(untidy)
+
+        self.assertEqual(format_source(formatted), formatted)
+        self.assertIn("function Double:", formatted)
+        self.assertIn("  returns: Integer", formatted)
+        self.assertIn("  body: value * 2", formatted)
+
+    def test_call_cli_evaluates_pure_function(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "intentir",
+                "call",
+                str(ROOT / "examples" / "functions.intent"),
+                "ClampDouble",
+                "--input",
+                '{"value":7}',
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(json.loads(completed.stdout)["result"], 10)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_generated_typescript_runs_function_examples_in_node(self) -> None:
+        output = generate_typescript(compile_source(FUNCTION_SOURCE))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "functions.ts"
+            target.write_text(output, encoding="utf-8")
+            script = (
+                f"import({json.dumps(target.as_uri())}).then(m=>{{"
+                "const r=m.runIntentIRTests();"
+                "const nested=m.ClampDouble({value:7});"
+                "const greeting=m.Greeting({name:'AI'});"
+                "console.log(JSON.stringify(r));"
+                "if(r.length!==5||r.some(x=>!x.ok)||nested!==10||greeting!=='Hello, AI')process.exit(1)"
+                "})"
+            )
+            completed = subprocess.run(
+                ["node", "--input-type=module", "-e", script],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(all(result["ok"] for result in json.loads(completed.stdout)))
+
+    def test_function_validation_report_includes_examples(self) -> None:
+        report = generate_validation_report(FUNCTION_SOURCE, "functions.intent")
+
+        self.assertIn("- Function: 4", report)
+        self.assertIn("- Function Example: 5", report)
+        self.assertIn("- 5 / 5 Function Example 成功", report)
 
     def test_canonical_hash_ignores_field_declaration_order(self) -> None:
         reordered = SOURCE.replace(

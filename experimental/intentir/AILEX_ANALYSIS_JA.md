@@ -19,7 +19,7 @@ Ailex の最も強い点は、AI向け言語の設計判断を実際のモデル
 1. AilexをAIが生成・修復しやすい実行言語または表層投影として使う
 2. その下に、内容アドレス付きの意味グラフを「真実の表現」として置く
 
-このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化、v0.6でSchema SnapshotとMigration IR、v0.7でSQLite関係表投影まで拡張しました。
+このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化、v0.6でSchema SnapshotとMigration IR、v0.7でSQLite関係表投影、v0.8で型付き純粋Functionまで拡張しました。
 
 ## Ailex の強み
 
@@ -246,11 +246,25 @@ Entityを専用Table、Fieldを型付きColumnへ投影し、物理Table名とPr
 
 旧JSON DBはそのまま読込でき、次の成功したAction保存またはMigration適用時に同じTransaction内で関係Tableへ変換します。Migration失敗時にはTable再構築もRollbackされます。
 
+## IntentIR v0.8で追加した改善
+
+### 型付き純粋Functionと一般式の第一段階
+
+型付きInput、Return型、純粋式Body、実行可能Exampleを持つFunctionを追加しました。算術、比較、論理、条件式、Function呼出しを文字列ではなく構造化ASTとして保持し、BodyとExampleを内容アドレス付きNodeへ変換します。
+
+### 呼出しGraphと終了性境界
+
+Function間依存を`calls` Edgeとして生成し、未知変数、未知Function、引数不足・重複、型不一致を静的診断します。再帰は無制限に実行せず、終了性を表す検証義務が未実装であるためCycleとして拒否します。
+
+### Python/TypeScriptの二重実行
+
+`intentir call`で純粋Functionを直接実行でき、FunctionとExampleをTypeScriptへ生成します。ネスト呼出し、default、条件式を両backendで実行し、同じ5 Exampleが成功することを確認しました。
+
 ## 次の優先順位
 
-### 1. 関数、一般式、Module
+### 1. Module/importとAction内Function呼出し
 
-GoやPythonに近い適用範囲へ広げるには、純粋関数、型付き式、分岐、反復、Module/importが必要です。ただし、Effectの決定性と構造化診断を維持したまま段階的に追加します。
+純粋Functionを複数Moduleへ分割し、内容アドレス付きimportで接続します。またRequirement、Effect値、Ensureから純粋Functionを呼べるようにし、ActionとFunctionの意味Graphを統合します。
 
 ### 2. Entity Relationと部分SQL更新
 

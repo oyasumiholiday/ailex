@@ -7,14 +7,16 @@
 ## 概要
 
 - Entity: 1
+- Function: 0
 - Action: 4
 - Test: 2
+- Function Example: 0
 - IR Node: 7
 - IR Edge: 11
 - 検証義務: 11
 - Repository Capability: 3種類 / 4 Action参照
 - Module ID: `sha256:1569746c9b44017ff7d087c40727e92619f168dcb0731a76022383c855bd832f`
-- Canonical Hash: `sha256:15e28d0c894191b1ee63fefe86f69b588766b6016c834aff18f9447978efd591`
+- Canonical Hash: `sha256:c159da8c4da15070e01fc5c6eb1ce594ba2595b746eb3974334b813b260e4166`
 - Storage Schema Hash: `sha256:309658e2c8bb87e6363ddf0b266d82032d5c44b75626ad0e7a13dad60b97f78d`
 - SQLite Projection ID: `sha256:1a42e0990cf9fbf6fce184aebf9185314a8168cc2b9364a070d3f9e6d5088ade`
 - SQLite Storage Format: `relational-v1`
@@ -29,10 +31,15 @@
 - `タスクを削除できる`: 成功
 - `タスクを完了して改名できる`: 成功
 
+## 純粋Function検証
+
+- Function Example はありません。
+
 ## 検証項目
 
 - 重複定義、シンボル衝突、組み込み型、デフォルト値
 - Requirement / Ensure の参照先と型の整合性
+- 純粋FunctionのInput、Return、式、呼出し、循環依存、Example
 - Effect の対象、CRUD操作、更新値の型、必須 Field への値の供給
 - Key / Unique制約、Effect selectorの一意性、Stateの整合性
 - SQLite関係表、列型、NOT NULL、Key / Unique制約の決定的投影
@@ -69,8 +76,8 @@
 
 ## 自動テスト
 
-- 34 / 34 成功
-- Python実行器、SQLite関係表、Migration、旧DB互換、生成TypeScriptのNode.js E2Eを含む
+- 42 / 42 成功
+- 純粋Function、Python実行器、SQLite関係表、Migration、旧DB互換、生成TypeScriptのNode.js E2Eを含む
 
 ## 実行コマンド
 

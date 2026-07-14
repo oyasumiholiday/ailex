@@ -17,6 +17,8 @@ def generate_typescript(ir: dict[str, Any]) -> str:
     module = ir["module"]
     entity_nodes = [node for node in ir["nodes"] if node["kind"] == "entity"]
     entities_by_name = {node["name"]: node for node in entity_nodes}
+    function_nodes = [node for node in ir["nodes"] if node["kind"] == "function"]
+    functions_by_name = {node["name"]: node for node in function_nodes}
     action_nodes = [node for node in ir["nodes"] if node["kind"] == "action"]
     test_nodes = [node for node in ir["nodes"] if node["kind"] == "test"]
 
@@ -24,6 +26,12 @@ def generate_typescript(ir: dict[str, Any]) -> str:
         f"// Generated from IntentIR module {module} ({ir['canonicalHash']}).",
         "",
     ]
+    if function_nodes:
+        lines.extend(render_pure_runtime())
+        lines.append("")
+    for function in function_nodes:
+        lines.extend(render_function(function, functions_by_name))
+        lines.append("")
     for entity in entity_nodes:
         lines.extend(render_entity(entity))
         lines.append("")
@@ -33,8 +41,130 @@ def generate_typescript(ir: dict[str, Any]) -> str:
     for action in action_nodes:
         lines.extend(render_action(action, entities_by_name))
         lines.append("")
-    lines.extend(render_test_runner(test_nodes, entities_by_name))
+    lines.extend(
+        render_test_runner(
+            test_nodes, entities_by_name, function_nodes, functions_by_name
+        )
+    )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_pure_runtime() -> list[str]:
+    return [
+        "function intentirDivide(left: number, right: number): number {",
+        '  if (right === 0) throw new Error("division by zero");',
+        "  return left / right;",
+        "}",
+        "",
+        "function intentirFloorDivide(left: number, right: number): number {",
+        '  if (right === 0) throw new Error("division by zero");',
+        "  return Math.floor(left / right);",
+        "}",
+        "",
+        "function intentirModulo(left: number, right: number): number {",
+        '  if (right === 0) throw new Error("division by zero");',
+        "  return left - Math.floor(left / right) * right;",
+        "}",
+    ]
+
+
+def render_function(
+    function: dict[str, Any], functions_by_name: dict[str, dict[str, Any]]
+) -> list[str]:
+    input_type = f"{function['name']}Input"
+    lines = [f"export type {input_type} = {{"]
+    for field in function["inputs"]:
+        optional = "?" if "default" in field else ""
+        lines.append(f"  {field['name']}{optional}: {ts_type(field['type'])};")
+    lines.extend(
+        [
+            "};",
+            "",
+            f"export function {function['name']}(input: {input_type}): {ts_type(function['returnType'])} {{",
+        ]
+    )
+    defaults = {
+        field["name"]: field["default"]
+        for field in function["inputs"]
+        if "default" in field
+    }
+    entries = ", ".join(
+        f"{name}: {ts_literal(value)}" for name, value in defaults.items()
+    )
+    prefix = f"{{ {entries}, ...input }}" if entries else "{ ...input }"
+    lines.append(f"  const resolvedInput = {prefix};")
+    expression = render_pure_expression(
+        function["body"]["expression"], functions_by_name
+    )
+    lines.extend([f"  return {expression};", "}"])
+    return lines
+
+
+def render_pure_expression(
+    expression: dict[str, Any],
+    functions_by_name: dict[str, dict[str, Any]],
+) -> str:
+    kind = expression.get("kind")
+    if kind == "literal":
+        return ts_literal(expression["value"])
+    if kind == "variable":
+        return f"resolvedInput.{expression['name']}"
+    if kind == "function_call":
+        function = functions_by_name[expression["function"]]
+        arguments: list[tuple[str, dict[str, Any]]] = []
+        for field, value in zip(function["inputs"], expression["args"]):
+            arguments.append((field["name"], value))
+        arguments.extend(
+            (item["name"], item["value"]) for item in expression["kwargs"]
+        )
+        rendered = ", ".join(
+            f"{name}: {render_pure_expression(value, functions_by_name)}"
+            for name, value in arguments
+        )
+        return f"{function['name']}({{ {rendered} }})"
+    if kind == "binary":
+        left = render_pure_expression(expression["left"], functions_by_name)
+        right = render_pure_expression(expression["right"], functions_by_name)
+        operator = expression["op"]
+        if operator == "divide":
+            return f"intentirDivide({left}, {right})"
+        if operator == "floor_divide":
+            return f"intentirFloorDivide({left}, {right})"
+        if operator == "modulo":
+            return f"intentirModulo({left}, {right})"
+        token = {"add": "+", "subtract": "-", "multiply": "*"}[operator]
+        return f"({left} {token} {right})"
+    if kind == "comparison":
+        left = render_pure_expression(expression["left"], functions_by_name)
+        right = render_pure_expression(expression["right"], functions_by_name)
+        token = {
+            "equal": "===",
+            "not_equal": "!==",
+            "less_than": "<",
+            "less_than_or_equal": "<=",
+            "greater_than": ">",
+            "greater_than_or_equal": ">=",
+        }[expression["op"]]
+        return f"({left} {token} {right})"
+    if kind == "boolean":
+        token = " && " if expression["op"] == "and" else " || "
+        values = [
+            render_pure_expression(value, functions_by_name)
+            for value in expression["values"]
+        ]
+        return "(" + token.join(values) + ")"
+    if kind == "unary":
+        token = {"not": "!", "negate": "-", "positive": "+"}[expression["op"]]
+        value = render_pure_expression(expression["value"], functions_by_name)
+        return f"({token}{value})"
+    if kind == "conditional":
+        condition = render_pure_expression(
+            expression["condition"], functions_by_name
+        )
+        then_value = render_pure_expression(expression["then"], functions_by_name)
+        else_value = render_pure_expression(expression["else"], functions_by_name)
+        return f"({condition} ? {then_value} : {else_value})"
+    return "undefined"
 
 
 def render_entity(entity: dict[str, Any]) -> list[str]:
@@ -282,6 +412,8 @@ def render_value(expression: dict[str, Any], record_name: str = "item") -> str:
 def render_test_runner(
     tests: list[dict[str, Any]],
     entities_by_name: dict[str, dict[str, Any]],
+    functions: list[dict[str, Any]],
+    functions_by_name: dict[str, dict[str, Any]],
 ) -> list[str]:
     lines = [
         "export type IntentIRTestResult = { name: string; ok: boolean; error?: string };",
@@ -314,6 +446,21 @@ def render_test_runner(
                 "  }",
             ]
         )
+    for function in functions:
+        for example in function["examples"]:
+            call = render_pure_expression(example["call"], functions_by_name)
+            expected = ts_literal(example["expected"]["value"])
+            lines.extend(
+                [
+                    "  try {",
+                    f"    const actual = {call};",
+                    f"    const ok = actual === {expected};",
+                    f"    results.push({{ name: {ts_literal(example['source'])}, ok, ...(ok ? {{}} : {{ error: `expected {expected}, got ${{String(actual)}}` }}) }});",
+                    "  } catch (error) {",
+                    f"    results.push({{ name: {ts_literal(example['source'])}, ok: false, error: error instanceof Error ? error.message : String(error) }});",
+                    "  }",
+                ]
+            )
     lines.extend(["  return results;", "}"])
     return lines
 

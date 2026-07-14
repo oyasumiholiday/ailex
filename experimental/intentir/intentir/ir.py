@@ -13,9 +13,14 @@ from intentir.expressions import (
     parse_literal,
     parse_requirement,
 )
+from intentir.pure import (
+    function_references,
+    parse_function_example,
+    parse_pure_expression,
+)
 
 
-SCHEMA_VERSION = "0.7.0"
+SCHEMA_VERSION = "0.8.0"
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,15 @@ class EntitySpec:
 
 
 @dataclass(frozen=True)
+class FunctionSpec:
+    name: str
+    inputs: list[FieldSpec] = field(default_factory=list)
+    return_type: str = ""
+    body: str = ""
+    examples: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class ActionSpec:
     name: str
     inputs: list[FieldSpec] = field(default_factory=list)
@@ -73,6 +87,7 @@ class TestSpec:
 class ProgramSpec:
     module: str
     entities: list[EntitySpec] = field(default_factory=list)
+    functions: list[FunctionSpec] = field(default_factory=list)
     actions: list[ActionSpec] = field(default_factory=list)
     tests: list[TestSpec] = field(default_factory=list)
 
@@ -80,6 +95,7 @@ class ProgramSpec:
 def build_ir(program: ProgramSpec) -> dict[str, Any]:
     nodes = [
         *[build_entity_node(entity) for entity in program.entities],
+        *[build_function_node(function) for function in program.functions],
         *[build_action_node(action) for action in program.actions],
         *[build_test_node(test) for test in program.tests],
     ]
@@ -120,6 +136,39 @@ def build_entity_node(entity: EntitySpec) -> dict[str, Any]:
         ),
     }
     return addressed_node(f"entity:{entity.name}", payload)
+
+
+def build_function_node(function: FunctionSpec) -> dict[str, Any]:
+    expression = parse_pure_expression(function.body)
+    body_payload = {"kind": "function_body", "expression": expression}
+    body = {
+        "id": content_address(body_payload),
+        "source": function.body,
+        **body_payload,
+    }
+    examples = [
+        build_function_example(source) for source in function.examples
+    ]
+    payload = {
+        "kind": "function",
+        "name": function.name,
+        "inputs": [input_spec.to_dict() for input_spec in function.inputs],
+        "returnType": function.return_type,
+        "body": body,
+        "examples": sorted(examples, key=lambda item: item["id"]),
+        "capabilities": [],
+    }
+    return addressed_node(f"function:{function.name}", payload)
+
+
+def build_function_example(source: str) -> dict[str, Any]:
+    example = parse_function_example(source)
+    payload = {
+        "kind": "function_example",
+        "call": example["call"],
+        "expected": example["expected"],
+    }
+    return {"id": content_address(payload), "source": source, **payload}
 
 
 def build_action_node(action: ActionSpec) -> dict[str, Any]:
@@ -199,7 +248,11 @@ def build_repository_capabilities(
 def build_edges(nodes: list[dict[str, Any]], symbols: dict[str, str]) -> list[dict[str, Any]]:
     symbolic_edges: list[tuple[str, str, str]] = []
     for node in nodes:
-        if node["kind"] == "action":
+        if node["kind"] == "function":
+            for function_name in function_references(node["body"]["expression"]):
+                target = f"function:{function_name}"
+                symbolic_edges.append((node["symbol"], target, "calls"))
+        elif node["kind"] == "action":
             for effect in node["effects"]:
                 target = f"entity:{effect['effect']['entity']}"
                 symbolic_edges.append((node["symbol"], target, "writes"))
@@ -228,7 +281,17 @@ def build_edges(nodes: list[dict[str, Any]], symbols: dict[str, str]) -> list[di
 def build_obligations(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     obligations: list[dict[str, Any]] = []
     for node in nodes:
-        if node["kind"] == "action":
+        if node["kind"] == "function":
+            for example in node["examples"]:
+                payload = {
+                    "kind": "function_example",
+                    "owner": node["id"],
+                    "ownerSymbol": node["symbol"],
+                    "call": example["call"],
+                    "expected": example["expected"],
+                }
+                obligations.append({"id": content_address(payload), **payload})
+        elif node["kind"] == "action":
             for ensure in node["ensures"]:
                 payload = {
                     "kind": "postcondition",
