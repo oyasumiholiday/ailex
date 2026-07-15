@@ -20,7 +20,7 @@ from intentir.pure import (
 )
 
 
-SCHEMA_VERSION = "0.8.0"
+SCHEMA_VERSION = "0.9.0"
 
 
 @dataclass(frozen=True)
@@ -253,9 +253,23 @@ def build_edges(nodes: list[dict[str, Any]], symbols: dict[str, str]) -> list[di
                 target = f"function:{function_name}"
                 symbolic_edges.append((node["symbol"], target, "calls"))
         elif node["kind"] == "action":
+            for requirement in node["requires"]:
+                for function_name in function_references(requirement["condition"]):
+                    symbolic_edges.append(
+                        (node["symbol"], f"function:{function_name}", "calls")
+                    )
             for effect in node["effects"]:
                 target = f"entity:{effect['effect']['entity']}"
                 symbolic_edges.append((node["symbol"], target, "writes"))
+                for function_name in function_references(effect["effect"]):
+                    symbolic_edges.append(
+                        (node["symbol"], f"function:{function_name}", "calls")
+                    )
+            for ensure in node["ensures"]:
+                for function_name in function_references(ensure["condition"]):
+                    symbolic_edges.append(
+                        (node["symbol"], f"function:{function_name}", "calls")
+                    )
         elif node["kind"] == "test":
             for step in node["steps"]:
                 symbolic_edges.append(

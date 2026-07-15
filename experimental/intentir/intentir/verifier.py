@@ -19,7 +19,7 @@ def verify_ir(ir: dict[str, Any]) -> dict[str, Any]:
     functions = function_index(ir)
     tests = [node for node in ir["nodes"] if node["kind"] == "test"]
 
-    results = [verify_test(test, entities, actions) for test in tests]
+    results = [verify_test(test, entities, actions, functions) for test in tests]
     function_examples = [
         verify_function_example(function, example, functions)
         for function in functions.values()
@@ -58,6 +58,7 @@ def run_action(
 ) -> dict[str, Any]:
     entities = entity_index(ir)
     actions = action_index(ir)
+    functions = function_index(ir)
     action = actions.get(action_name)
     if not action:
         raise ValueError(f"unknown action: {action_name}")
@@ -67,7 +68,9 @@ def run_action(
     store = create_store(entities, state)
     checks: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    result = execute_action(action, inputs, store, entities, checks, errors)
+    result = execute_action(
+        action, inputs, store, entities, functions, checks, errors
+    )
     return {
         "ok": result is not None and not errors,
         "module": ir["module"],
@@ -346,6 +349,7 @@ def verify_test(
     test: dict[str, Any],
     entities: dict[str, dict[str, Any]],
     actions: dict[str, dict[str, Any]],
+    functions: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     store = create_store(entities)
     checks: list[dict[str, Any]] = []
@@ -359,6 +363,7 @@ def verify_test(
             inputs,
             store,
             entities,
+            functions,
             checks,
             errors,
             step_index=step_index,
@@ -403,6 +408,7 @@ def execute_action(
     raw_inputs: dict[str, Any],
     store: dict[str, list[dict[str, Any]]],
     entities: dict[str, dict[str, Any]],
+    functions: dict[str, dict[str, Any]],
     checks: list[dict[str, Any]],
     errors: list[dict[str, Any]],
     step_index: int | None = None,
@@ -416,7 +422,18 @@ def execute_action(
     affected: dict[str, dict[str, Any]] = {}
 
     for requirement in action["requires"]:
-        ok = evaluate_condition(requirement["condition"], inputs, created, affected)
+        try:
+            ok = evaluate_condition(
+                requirement["condition"], inputs, created, affected, functions
+            )
+        except PureRuntimeError as error:
+            append_check(
+                checks, requirement, "precondition", False, action["name"], step_index
+            )
+            errors.append(
+                action_expression_error(error, action["name"], requirement["id"])
+            )
+            return None
         append_check(
             checks, requirement, "precondition", ok, action["name"], step_index
         )
@@ -433,7 +450,16 @@ def execute_action(
 
     for effect_node in action["effects"]:
         effect = effect_node["effect"]
-        result = apply_effect(effect, inputs, working, entities)
+        try:
+            result = apply_effect(effect, inputs, working, entities, functions)
+        except PureRuntimeError as error:
+            append_check(
+                checks, effect_node, "effect", False, action["name"], step_index
+            )
+            errors.append(
+                action_expression_error(error, action["name"], effect_node["id"])
+            )
+            return None
         ok = result["ok"]
         append_check(checks, effect_node, "effect", ok, action["name"], step_index)
         if not ok:
@@ -453,7 +479,18 @@ def execute_action(
                 created[entity_name] = result["record"]
 
     for ensure in action["ensures"]:
-        ok = evaluate_condition(ensure["condition"], inputs, created, affected)
+        try:
+            ok = evaluate_condition(
+                ensure["condition"], inputs, created, affected, functions
+            )
+        except PureRuntimeError as error:
+            append_check(
+                checks, ensure, "postcondition", False, action["name"], step_index
+            )
+            errors.append(
+                action_expression_error(error, action["name"], ensure["id"])
+            )
+            return None
         append_check(checks, ensure, "postcondition", ok, action["name"], step_index)
         if not ok:
             errors.append(
@@ -477,6 +514,7 @@ def apply_effect(
     inputs: dict[str, Any],
     store: dict[str, list[dict[str, Any]]],
     entities: dict[str, dict[str, Any]],
+    functions: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     entity_name = effect["entity"]
     if effect["op"] == "insert":
@@ -503,7 +541,7 @@ def apply_effect(
     matches = [
         index
         for index, record in enumerate(records)
-        if evaluate_condition(effect["where"], inputs, {}, {}, record)
+        if evaluate_condition(effect["where"], inputs, {}, {}, functions, record)
     ]
     if not matches:
         return effect_error(
@@ -527,7 +565,7 @@ def apply_effect(
         for assignment in effect["set"]:
             field_name = assignment["field"]
             value = resolve_value(
-                assignment["value"], inputs, {}, {}, record
+                assignment["value"], inputs, {}, {}, functions, record
             )
             if fields[field_name].get("key") and value != record.get(field_name):
                 return effect_error(
@@ -676,7 +714,7 @@ def evaluate_expectation(
         return len(records) == expectation["count"]
     where = expectation.get("where")
     matched = bool(records) if not where else any(
-        evaluate_condition(where, {}, {}, {}, record) for record in records
+        evaluate_condition(where, {}, {}, {}, {}, record) for record in records
     )
     return not matched if kind == "entity_not_exists" else matched
 
@@ -686,15 +724,22 @@ def evaluate_condition(
     inputs: dict[str, Any],
     created: dict[str, dict[str, Any]],
     affected: dict[str, dict[str, Any]],
+    functions: dict[str, dict[str, Any]],
     record: dict[str, Any] | None = None,
 ) -> bool:
     kind = condition.get("kind")
     if kind == "not_empty":
-        value = resolve_value(condition["target"], inputs, created, affected, record)
+        value = resolve_value(
+            condition["target"], inputs, created, affected, functions, record
+        )
         return isinstance(value, str) and len(value) > 0
     if kind == "equals":
-        left = resolve_value(condition["left"], inputs, created, affected, record)
-        right = resolve_value(condition["right"], inputs, created, affected, record)
+        left = resolve_value(
+            condition["left"], inputs, created, affected, functions, record
+        )
+        right = resolve_value(
+            condition["right"], inputs, created, affected, functions, record
+        )
         return left is not MISSING and right is not MISSING and left == right
     return False
 
@@ -704,6 +749,7 @@ def resolve_value(
     inputs: dict[str, Any],
     created: dict[str, dict[str, Any]],
     affected: dict[str, dict[str, Any]],
+    functions: dict[str, dict[str, Any]],
     record: dict[str, Any] | None,
 ) -> Any:
     kind = expression.get("kind")
@@ -719,7 +765,28 @@ def resolve_value(
         return entity.get(expression["field"], MISSING) if entity else MISSING
     if kind == "entity_field" and record is not None:
         return record.get(expression["field"], MISSING)
+    if kind in {
+        "variable",
+        "function_call",
+        "binary",
+        "comparison",
+        "boolean",
+        "unary",
+        "conditional",
+    }:
+        return evaluate_pure_expression(expression, inputs, functions, [])
     return MISSING
+
+
+def action_expression_error(
+    error: PureRuntimeError, action_name: str, obligation_id: str
+) -> dict[str, str]:
+    return verification_error(
+        error.code,
+        f"action {action_name} expression failed: {error}",
+        f"Action `{action_name}` の純粋式の実行に失敗しました: {error}",
+        obligation_id,
+    )
 
 
 def append_check(

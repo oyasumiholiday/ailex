@@ -1,0 +1,46 @@
+module FunctionActions
+
+entity Task:
+  id: UUID required key
+  title: Text required
+
+function IsAcceptableTitle:
+  input:
+    title: Text required
+  returns: Boolean
+  body: title != ""
+  examples:
+    IsAcceptableTitle(title="task") equals true
+
+function NormalizeTitle:
+  input:
+    title: Text required
+  returns: Text
+  body: title + "!"
+  examples:
+    NormalizeTitle(title="task") equals "task!"
+
+action CreateTask:
+  input:
+    id: UUID required
+    title: Text required
+  requires:
+    IsAcceptableTitle(title) equals true
+  effects:
+    insert Task
+
+action RenameTask:
+  input:
+    id: UUID required
+    title: Text required
+  requires:
+    IsAcceptableTitle(title) equals true
+  effects:
+    update Task where id equals input.id set title = NormalizeTitle(title)
+  ensures:
+    affected Task.title equals NormalizeTitle(title)
+
+test "rename through a pure function":
+  when CreateTask(id="task-1", title="draft")
+  when RenameTask(id="task-1", title="write docs")
+  expect Task exists with title "write docs!"

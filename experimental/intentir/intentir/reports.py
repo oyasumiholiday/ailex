@@ -36,7 +36,7 @@ HINTS_JA = {
     "literal_type_mismatch": "宣言された型と互換性のあるリテラルへ変更してください。",
     "unknown_effect_field": "更新対象をScope内のFieldへ変更してください。",
     "effect_assignment_type_mismatch": "更新値をFieldと互換性のある型へ変更してください。",
-    "unsupported_effect_value": "Effectの値にはInput参照またはリテラルを使用してください。",
+    "unsupported_effect_value": "Effectの値にはInput参照、リテラル、または純粋式を使用してください。",
     "key_requires_required": "Key Fieldへrequiredを追加してください。",
     "key_default_not_allowed": "Key Fieldのdefaultを削除し、明示的に値を渡してください。",
     "multiple_entity_keys": "Keyを1つに絞り、追加識別子にはuniqueを使用してください。",

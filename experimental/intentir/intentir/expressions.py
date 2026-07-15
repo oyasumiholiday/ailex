@@ -203,7 +203,14 @@ def parse_reference_or_literal(expr: str) -> dict[str, Any]:
     try:
         return parse_reference(expr)
     except ExpressionError:
+        pass
+    try:
         return parse_literal(expr)
+    except ExpressionError:
+        # Imported lazily because the pure-expression parser reuses parse_literal.
+        from intentir.pure import parse_pure_expression
+
+        return parse_pure_expression(expr)
 
 
 def parse_reference(expr: str) -> dict[str, str]:

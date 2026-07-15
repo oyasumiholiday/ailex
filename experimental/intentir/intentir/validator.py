@@ -92,7 +92,7 @@ def collect_diagnostics(program: ProgramSpec) -> list[Diagnostic]:
         validate_function(function, functions, diagnostics)
     validate_function_cycles(program.functions, functions, diagnostics)
     for action in program.actions:
-        validate_action(action, entities, diagnostics)
+        validate_action(action, entities, functions, diagnostics)
     for test in program.tests:
         validate_test(test, actions, entities, diagnostics)
     return diagnostics
@@ -646,6 +646,7 @@ def validate_entity(entity: EntitySpec, diagnostics: list[Diagnostic]) -> None:
 def validate_action(
     action: ActionSpec,
     entities: dict[str, EntitySpec],
+    functions: dict[str, FunctionSpec],
     diagnostics: list[Diagnostic],
 ) -> None:
     path = f"/actions/{action.name}"
@@ -679,7 +680,15 @@ def validate_action(
         )
         if condition:
             parsed_requirements.append(condition)
-            validate_condition(action, condition, inputs, entities, "requires", diagnostics)
+            validate_condition(
+                action,
+                condition,
+                inputs,
+                entities,
+                functions,
+                "requires",
+                diagnostics,
+            )
 
     guaranteed_inputs = {
         condition["target"]["name"]
@@ -705,6 +714,7 @@ def validate_action(
                 inputs,
                 guaranteed_inputs,
                 entities,
+                functions,
                 index,
                 diagnostics,
             )
@@ -721,7 +731,15 @@ def validate_action(
             diagnostics,
         )
         if condition:
-            validate_condition(action, condition, inputs, entities, "ensures", diagnostics)
+            validate_condition(
+                action,
+                condition,
+                inputs,
+                entities,
+                functions,
+                "ensures",
+                diagnostics,
+            )
             for entity_name, _ in referenced_created_fields(condition):
                 count = inserted.count(entity_name)
                 if count == 0:
@@ -913,6 +931,7 @@ def validate_condition(
     condition: dict[str, Any],
     inputs: dict[str, FieldSpec],
     entities: dict[str, EntitySpec],
+    functions: dict[str, FunctionSpec],
     section: str,
     diagnostics: list[Diagnostic],
 ) -> None:
@@ -958,8 +977,22 @@ def validate_condition(
                 )
             )
     elif condition.get("kind") == "equals":
-        left_type = expression_type(condition["left"], inputs, entities)
-        right_type = expression_type(condition["right"], inputs, entities)
+        left_type = expression_type(
+            condition["left"],
+            inputs,
+            entities,
+            functions,
+            diagnostics,
+            f"{path}/left",
+        )
+        right_type = expression_type(
+            condition["right"],
+            inputs,
+            entities,
+            functions,
+            diagnostics,
+            f"{path}/right",
+        )
         if left_type and right_type and not compatible_types(left_type, right_type):
             diagnostics.append(
                 make_diagnostic(
@@ -979,6 +1012,7 @@ def validate_effect(
     inputs: dict[str, FieldSpec],
     guaranteed_inputs: set[str],
     entities: dict[str, EntitySpec],
+    functions: dict[str, FunctionSpec],
     index: int,
     diagnostics: list[Diagnostic],
 ) -> None:
@@ -1003,11 +1037,12 @@ def validate_effect(
             effect["where"],
             inputs,
             entities,
+            functions,
             f"effects/{index}/where",
             diagnostics,
         )
         where_value = effect["where"]["right"]
-        if where_value.get("kind") not in {"input", "literal"}:
+        if not is_action_value(where_value):
             add_unsupported_effect_value(action, where_value, path, diagnostics)
         selector_name = effect["where"]["left"]["field"]
         selector = next(
@@ -1031,7 +1066,14 @@ def validate_effect(
 
         if effect["op"] == "update":
             validate_update_assignments(
-                action, effect, entity, inputs, entities, path, diagnostics
+                action,
+                effect,
+                entity,
+                inputs,
+                entities,
+                functions,
+                path,
+                diagnostics,
             )
         return
 
@@ -1084,6 +1126,7 @@ def validate_update_assignments(
     entity: EntitySpec,
     inputs: dict[str, FieldSpec],
     entities: dict[str, EntitySpec],
+    functions: dict[str, FunctionSpec],
     path: str,
     diagnostics: list[Diagnostic],
 ) -> None:
@@ -1144,10 +1187,17 @@ def validate_update_assignments(
                         "Choose an input from scope.",
                     )
                 )
-        if value.get("kind") not in {"input", "literal"}:
+        if not is_action_value(value):
             add_unsupported_effect_value(action, value, assignment_path, diagnostics)
             continue
-        value_type = expression_type(value, inputs, entities)
+        value_type = expression_type(
+            value,
+            inputs,
+            entities,
+            functions,
+            diagnostics,
+            assignment_path,
+        )
         if value_type and not compatible_types(field.type_name, value_type):
             diagnostics.append(
                 make_diagnostic(
@@ -1173,10 +1223,24 @@ def add_unsupported_effect_value(
             f"action {action.name} uses unsupported {value.get('kind')} value in an effect",
             f"Action `{action.name}` の Effect では `{value.get('kind')}` 値を使用できません。",
             path,
-            ("input", "literal"),
-            "Use an input reference or scalar literal.",
+            ("input", "literal", "pure_expression"),
+            "Use an input reference, scalar literal, or pure expression.",
         )
     )
+
+
+def is_action_value(value: dict[str, Any]) -> bool:
+    return value.get("kind") in {
+        "input",
+        "literal",
+        "variable",
+        "function_call",
+        "binary",
+        "comparison",
+        "boolean",
+        "unary",
+        "conditional",
+    }
 
 
 def validate_entity_field_reference(
@@ -1320,6 +1384,9 @@ def expression_type(
     expression: dict[str, Any],
     inputs: dict[str, FieldSpec],
     entities: dict[str, EntitySpec],
+    functions: dict[str, FunctionSpec],
+    diagnostics: list[Diagnostic],
+    path: str,
 ) -> str | None:
     kind = expression.get("kind")
     if kind == "literal":
@@ -1330,8 +1397,23 @@ def expression_type(
     if kind in {"created_field", "affected_field", "entity_field"}:
         entity = entities.get(expression["entity"])
         if entity:
-            field = next((field for field in entity.fields if field.name == expression["field"]), None)
+            field = next(
+                (
+                    field
+                    for field in entity.fields
+                    if field.name == expression["field"]
+                ),
+                None,
+            )
             return field.type_name if field else None
+    if is_action_value(expression):
+        return infer_pure_type(
+            expression,
+            {name: field.type_name for name, field in inputs.items()},
+            functions,
+            diagnostics,
+            path,
+        )
     return None
 
 

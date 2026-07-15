@@ -26,9 +26,8 @@ def generate_typescript(ir: dict[str, Any]) -> str:
         f"// Generated from IntentIR module {module} ({ir['canonicalHash']}).",
         "",
     ]
-    if function_nodes:
-        lines.extend(render_pure_runtime())
-        lines.append("")
+    lines.extend(render_pure_runtime())
+    lines.append("")
     for function in function_nodes:
         lines.extend(render_function(function, functions_by_name))
         lines.append("")
@@ -39,7 +38,7 @@ def generate_typescript(ir: dict[str, Any]) -> str:
     lines.extend(render_store(entity_nodes))
     lines.append("")
     for action in action_nodes:
-        lines.extend(render_action(action, entities_by_name))
+        lines.extend(render_action(action, entities_by_name, functions_by_name))
         lines.append("")
     lines.extend(
         render_test_runner(
@@ -195,6 +194,7 @@ def render_store(entities: list[dict[str, Any]]) -> list[str]:
 def render_action(
     action: dict[str, Any],
     entities_by_name: dict[str, dict[str, Any]],
+    functions_by_name: dict[str, dict[str, Any]],
 ) -> list[str]:
     input_type = f"{action['name']}Input"
     lines = [f"export type {input_type} = {{"]
@@ -221,7 +221,9 @@ def render_action(
     lines.append(f"  const resolvedInput = {prefix};")
 
     for requirement in action["requires"]:
-        expression = render_condition(requirement["condition"])
+        expression = render_condition(
+            requirement["condition"], functions_by_name
+        )
         lines.extend(
             [
                 f"  if (!({expression})) {{",
@@ -249,11 +251,17 @@ def render_action(
     for index, effect in enumerate(action["effects"]):
         lines.extend(
             f"  {line}"
-            for line in render_effect(effect["effect"], index, action, entities_by_name)
+            for line in render_effect(
+                effect["effect"],
+                index,
+                action,
+                entities_by_name,
+                functions_by_name,
+            )
         )
 
     for ensure in action["ensures"]:
-        expression = render_condition(ensure["condition"])
+        expression = render_condition(ensure["condition"], functions_by_name)
         lines.extend(
             [
                 f"  if (!({expression})) {{",
@@ -271,6 +279,7 @@ def render_effect(
     index: int,
     action: dict[str, Any],
     entities_by_name: dict[str, dict[str, Any]],
+    functions_by_name: dict[str, dict[str, Any]],
 ) -> list[str]:
     entity = effect["entity"]
     entity_node = entities_by_name[entity]
@@ -294,7 +303,7 @@ def render_effect(
 
     matches_name = f"matched{entity}{index}"
     target_name = f"target{entity}{index}"
-    condition = render_condition(effect["where"])
+    condition = render_condition(effect["where"], functions_by_name)
     lines = [
         f"const {matches_name} = nextStore.{collection}.filter((item) => {condition});",
         f"if ({matches_name}.length !== 1) {{",
@@ -306,7 +315,8 @@ def render_effect(
     if effect["op"] == "update":
         value_name = f"updated{entity}{index}"
         assignments = [
-            f"{assignment['field']}: {render_value(assignment['value'])},"
+            f"{assignment['field']}: "
+            f"{render_value(assignment['value'], functions_by_name)},"
             for assignment in effect["set"]
         ]
         lines.extend(
@@ -382,19 +392,27 @@ def render_created_fields(
     return lines
 
 
-def render_condition(condition: dict[str, Any], record_name: str = "item") -> str:
+def render_condition(
+    condition: dict[str, Any],
+    functions_by_name: dict[str, dict[str, Any]],
+    record_name: str = "item",
+) -> str:
     kind = condition.get("kind")
     if kind == "not_empty":
-        target = render_value(condition["target"], record_name)
+        target = render_value(condition["target"], functions_by_name, record_name)
         return f'typeof {target} === "string" && {target}.length > 0'
     if kind == "equals":
-        left = render_value(condition["left"], record_name)
-        right = render_value(condition["right"], record_name)
+        left = render_value(condition["left"], functions_by_name, record_name)
+        right = render_value(condition["right"], functions_by_name, record_name)
         return f"{left} === {right}"
     return "false"
 
 
-def render_value(expression: dict[str, Any], record_name: str = "item") -> str:
+def render_value(
+    expression: dict[str, Any],
+    functions_by_name: dict[str, dict[str, Any]],
+    record_name: str = "item",
+) -> str:
     kind = expression.get("kind")
     if kind == "literal":
         return ts_literal(expression.get("value"))
@@ -406,6 +424,16 @@ def render_value(expression: dict[str, Any], record_name: str = "item") -> str:
         return f"affected{expression['entity']}?.{expression['field']}"
     if kind == "entity_field":
         return f"{record_name}.{expression['field']}"
+    if kind in {
+        "variable",
+        "function_call",
+        "binary",
+        "comparison",
+        "boolean",
+        "unary",
+        "conditional",
+    }:
+        return render_pure_expression(expression, functions_by_name)
     return "undefined"
 
 
@@ -424,7 +452,9 @@ def render_test_runner(
     for index, test in enumerate(tests):
         store_name = f"store{index}"
         checks = [
-            render_expectation(expected["expectation"], entities_by_name)
+            render_expectation(
+                expected["expectation"], entities_by_name, functions_by_name
+            )
             for expected in test["expects"]
         ]
         expression = " && ".join(f"({check})" for check in checks) or "true"
@@ -468,6 +498,7 @@ def render_test_runner(
 def render_expectation(
     expectation: dict[str, Any],
     entities_by_name: dict[str, dict[str, Any]],
+    functions_by_name: dict[str, dict[str, Any]],
 ) -> str:
     entity = expectation["entity"]
     collection = camel_plural(entities_by_name[entity]["name"])
@@ -477,7 +508,10 @@ def render_expectation(
     matched = (
         f"store.{collection}.length > 0"
         if not where
-        else f"store.{collection}.some((item) => {render_condition(where)})"
+        else (
+            f"store.{collection}.some((item) => "
+            f"{render_condition(where, functions_by_name)})"
+        )
     )
     return f"!({matched})" if expectation["kind"] == "entity_not_exists" else matched
 

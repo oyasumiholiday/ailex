@@ -57,6 +57,9 @@ CRUD_SOURCE = (ROOT / "examples" / "todo_crud.intent").read_text(encoding="utf-8
 FUNCTION_SOURCE = (ROOT / "examples" / "functions.intent").read_text(
     encoding="utf-8"
 )
+FUNCTION_ACTION_SOURCE = (
+    ROOT / "examples" / "function_actions.intent"
+).read_text(encoding="utf-8")
 
 MIGRATION_BASE_SOURCE = """
 module Inventory
@@ -71,7 +74,7 @@ class CompilerTest(unittest.TestCase):
     def test_compile_source_builds_content_addressed_graph(self) -> None:
         ir = compile_source(SOURCE)
 
-        self.assertEqual(ir["schemaVersion"], "0.8.0")
+        self.assertEqual(ir["schemaVersion"], "0.9.0")
         self.assertEqual(ir["hashAlgorithm"], "sha256")
         self.assertTrue(ir["moduleId"].startswith("sha256:"))
         self.assertTrue(ir["canonicalHash"].startswith("sha256:"))
@@ -145,6 +148,87 @@ class CompilerTest(unittest.TestCase):
             if obligation["kind"] == "function_example"
         ]
         self.assertEqual(len(function_obligations), 5)
+
+    def test_actions_call_pure_functions_in_contracts_and_effects(self) -> None:
+        ir = compile_source(FUNCTION_ACTION_SOURCE)
+        call_edges = {
+            (edge["fromSymbol"], edge["toSymbol"])
+            for edge in ir["edges"]
+            if edge["kind"] == "calls"
+        }
+
+        self.assertEqual(
+            call_edges,
+            {
+                ("action:CreateTask", "function:IsAcceptableTitle"),
+                ("action:RenameTask", "function:IsAcceptableTitle"),
+                ("action:RenameTask", "function:NormalizeTitle"),
+            },
+        )
+        result = verify_ir(ir)
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["tests"][0]["finalState"]["Task"],
+            [{"id": "task-1", "title": "write docs!"}],
+        )
+
+        failed = run_action(
+            ir,
+            "RenameTask",
+            {"id": "task-1", "title": ""},
+            {"Task": [{"id": "task-1", "title": "draft"}]},
+        )
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed["errors"][0]["code"], "precondition_failed")
+
+    def test_action_pure_function_values_are_statically_typed(self) -> None:
+        source = FUNCTION_ACTION_SOURCE.replace(
+            "set title = NormalizeTitle(title)",
+            "set title = IsAcceptableTitle(title)",
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            compile_source(source)
+
+        self.assertIn(
+            "effect_assignment_type_mismatch",
+            {diagnostic.code for diagnostic in context.exception.diagnostics},
+        )
+
+    def test_action_pure_runtime_error_is_atomic(self) -> None:
+        source = """
+module PureFailure
+
+function Explode:
+  input:
+    value: Integer required
+  returns: Number
+  body: value / 0
+
+entity Counter:
+  id: UUID required key
+  value: Number required
+
+action UpdateCounter:
+  input:
+    id: UUID required
+    value: Integer required
+  effects:
+    update Counter where id equals input.id set value = Explode(value)
+"""
+        ir = compile_source(source)
+        state = {"Counter": [{"id": "counter-1", "value": 10}]}
+
+        result = run_action(
+            ir,
+            "UpdateCounter",
+            {"id": "counter-1", "value": 2},
+            state,
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["errors"][0]["code"], "pure_division_by_zero")
+        self.assertEqual(result["state"], state)
 
     def test_function_hash_ignores_named_argument_order(self) -> None:
         reordered = FUNCTION_SOURCE.replace(
@@ -271,6 +355,34 @@ function Identity:
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertTrue(all(result["ok"] for result in json.loads(completed.stdout)))
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_generated_typescript_runs_functions_inside_actions(self) -> None:
+        output = generate_typescript(compile_source(FUNCTION_ACTION_SOURCE))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "function_actions.ts"
+            target.write_text(output, encoding="utf-8")
+            script = (
+                f"import({json.dumps(target.as_uri())}).then(m=>{{"
+                "const r=m.runIntentIRTests();"
+                "let s=m.createStore();"
+                "s=m.CreateTask(s,{id:'task-2',title:'draft'});"
+                "s=m.RenameTask(s,{id:'task-2',title:'ship'});"
+                "console.log(JSON.stringify({results:r,state:s}));"
+                "if(r.some(x=>!x.ok)||s.tasks[0].title!=='ship!')process.exit(1)"
+                "})"
+            )
+            completed = subprocess.run(
+                ["node", "--input-type=module", "-e", script],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(all(result["ok"] for result in payload["results"]))
+        self.assertEqual(payload["state"]["tasks"][0]["title"], "ship!")
 
     def test_function_validation_report_includes_examples(self) -> None:
         report = generate_validation_report(FUNCTION_SOURCE, "functions.intent")

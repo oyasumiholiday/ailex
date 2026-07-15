@@ -19,7 +19,7 @@ Ailex の最も強い点は、AI向け言語の設計判断を実際のモデル
 1. AilexをAIが生成・修復しやすい実行言語または表層投影として使う
 2. その下に、内容アドレス付きの意味グラフを「真実の表現」として置く
 
-このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化、v0.6でSchema SnapshotとMigration IR、v0.7でSQLite関係表投影、v0.8で型付き純粋Functionまで拡張しました。
+このワークスペースでは、2に相当する改善版をIntentIR v0.3として実装し、v0.4でCRUD実行とCLI、v0.5でKey/Unique、Repository Capability、SQLite永続化、v0.6でSchema SnapshotとMigration IR、v0.7でSQLite関係表投影、v0.8で型付き純粋Function、v0.9でAction内Function呼出しまで拡張しました。
 
 ## Ailex の強み
 
@@ -260,11 +260,21 @@ Function間依存を`calls` Edgeとして生成し、未知変数、未知Functi
 
 `intentir call`で純粋Functionを直接実行でき、FunctionとExampleをTypeScriptへ生成します。ネスト呼出し、default、条件式を両backendで実行し、同じ5 Exampleが成功することを確認しました。
 
+## IntentIR v0.9で追加した改善
+
+### ActionとFunctionの意味Graph統合
+
+Requirement、EffectのSelectorと代入値、Ensureで純粋Functionを利用できるようにしました。Action Inputを純粋式の変数Scopeとして型検証し、ActionからFunctionへの依存を`calls` Edgeとして内容アドレス付きGraphへ追加します。
+
+### Backend間で共有する式意味論
+
+Python実行器とTypeScript生成器が同じ純粋式ASTを評価します。式の型不一致は実行前に拒否し、ゼロ除算などのRuntime Errorが起きた場合もActionを原子的に失敗させます。
+
 ## 次の優先順位
 
-### 1. Module/importとAction内Function呼出し
+### 1. Module/import
 
-純粋Functionを複数Moduleへ分割し、内容アドレス付きimportで接続します。またRequirement、Effect値、Ensureから純粋Functionを呼べるようにし、ActionとFunctionの意味Graphを統合します。
+純粋Function、Entity、Actionを複数Moduleへ分割し、内容アドレス付きimportで接続します。import先の公開Symbolと依存Hashを固定し、同名衝突や循環importを静的に診断します。
 
 ### 2. Entity Relationと部分SQL更新
 

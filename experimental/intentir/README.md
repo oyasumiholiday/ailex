@@ -4,9 +4,9 @@ IntentIR is an executable, machine-oriented semantic IR and a compact surface la
 
 The project complements an AI-friendly language such as [Ailex](https://github.com/oyasumiholiday/ailex): concise source is used for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
-Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md) and for [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md).
+Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), and [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md).
 
-IntentIR v0.8 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), typed pure functions, key and unique constraints, relational SQLite storage, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
+IntentIR v0.9 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), typed pure functions usable from Action contracts and update values, key and unique constraints, relational SQLite storage, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
 
 ## Example
 
@@ -64,6 +64,23 @@ function Clamp:
 
 Functions can call other pure functions. Arithmetic, comparison, boolean, unary, and conditional expressions are lowered to a typed AST; recursive cycles are rejected until explicit termination obligations are available. The complete sample is [examples/functions.intent](examples/functions.intent).
 
+Actions can use the same pure expression AST in requirements, update values, selectors, and postconditions. Bare names inside a pure expression refer to Action inputs:
+
+```intentir
+action RenameTask:
+  input:
+    id: UUID required
+    title: Text required
+  requires:
+    IsAcceptableTitle(title) equals true
+  effects:
+    update Task where id equals input.id set title = NormalizeTitle(title)
+  ensures:
+    affected Task.title equals NormalizeTitle(title)
+```
+
+The end-to-end sample is [examples/function_actions.intent](examples/function_actions.intent).
+
 ## Commands
 
 ```sh
@@ -73,6 +90,7 @@ python3 -m intentir check examples/todo_crud.intent
 # Execute all scenarios
 python3 -m intentir test examples/todo_crud.intent
 python3 -m intentir test examples/functions.intent
+python3 -m intentir test examples/function_actions.intent
 
 # Evaluate a pure function
 python3 -m intentir call examples/functions.intent ClampDouble \
@@ -118,7 +136,7 @@ python3 -m intentir examples/todo.intent --emit verify
 python3 -m intentir examples/todo.intent --emit typescript
 ```
 
-## v0.8 capabilities
+## v0.9 capabilities
 
 - Content-addressed entity, action, test, edge, effect, and obligation nodes
 - Canonical JSON and a module-level SHA-256 semantic hash
@@ -128,6 +146,8 @@ python3 -m intentir examples/todo.intent --emit typescript
 - Content-addressed function bodies, `calls` edges, and example obligations
 - Static call checking and recursive-cycle rejection
 - Direct function evaluation through `intentir call`
+- Pure function calls and typed expressions in Action requirements, selectors, update values, and postconditions
+- Action-to-Function `calls` edges in the content-addressed dependency graph
 - Entity identity with one `key` field and additional `unique` fields
 - Requirements: non-empty input and equality
 - Effects: `insert`, `update`, and `delete`; mutation selectors must be key or unique
@@ -178,8 +198,8 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The suite contains 42 tests, including pure-function canonicalization, typing, and Python/Node.js execution, relational projection, physical SQLite constraints, metadata tamper protection, migration table-rebuild rollback, v0.5/v0.6 database compatibility, and cross-process persistence.
+The suite contains 46 tests, including Action-to-Function typing and atomic failure, pure-function canonicalization and Python/Node.js execution, relational projection, physical SQLite constraints, metadata tamper protection, migration table-rebuild rollback, v0.5/v0.6 database compatibility, and cross-process persistence.
 
 ## Current boundaries
 
-Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Actions cannot call pure functions yet. SQLite stores Entity records in relational tables, but the interpreter still rewrites a complete Module State per Action rather than issuing incremental SQL. IntentIR also lacks Entity relationships, modules/imports, package management, declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is Module/import support and function use inside Actions, followed by Entity relations, incremental repositories, and hash-guarded Patch IR for AI edits.
+Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. SQLite stores Entity records in relational tables, but the interpreter still rewrites a complete Module State per Action rather than issuing incremental SQL. IntentIR also lacks Entity relationships, modules/imports, package management, declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is Module/import support, followed by Entity relations, incremental repositories, and hash-guarded Patch IR for AI edits.
