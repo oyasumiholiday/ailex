@@ -20,6 +20,13 @@ def format_source(source: str) -> str:
 
 def format_program(program: ProgramSpec) -> str:
     blocks = [f"module {program.module}"]
+    if program.imports:
+        blocks.append(
+            "\n".join(
+                f"import {json.dumps(import_spec.path, ensure_ascii=False)}"
+                for import_spec in program.imports
+            )
+        )
     blocks.extend(format_entity(entity) for entity in program.entities)
     blocks.extend(format_function(function) for function in program.functions)
     blocks.extend(format_action(action) for action in program.actions)

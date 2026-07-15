@@ -9,12 +9,19 @@ from typing import Any, Sequence
 
 from intentir import __version__
 from intentir.canonical import canonical_json
-from intentir.compiler import compile_source
+from intentir.compiler import (
+    compile_path as compile_program_path,
+    compile_source,
+    load_program,
+)
 from intentir.formatter import format_source
 from intentir.generators.typescript import generate_typescript
 from intentir.migration import MigrationError, apply_migration, plan_migration
 from intentir.parser import ParseError
-from intentir.reports import generate_validation_report
+from intentir.reports import (
+    generate_parse_error_report,
+    generate_program_validation_report,
+)
 from intentir.storage import (
     SQLiteStateRepository,
     StorageError,
@@ -143,9 +150,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def command_check(args: argparse.Namespace) -> None:
-    source = read_source(args.source)
     try:
-        ir = compile_source(source)
+        ir = compile_program_path(args.source)
     except (ParseError, ValidationError) as error:
         if args.json:
             print(json.dumps(error_payload(error), indent=2, ensure_ascii=False))
@@ -341,8 +347,12 @@ def command_fmt(args: argparse.Namespace) -> None:
 
 
 def command_report(args: argparse.Namespace) -> None:
-    source = read_source(args.source)
-    report = generate_validation_report(source, str(args.source))
+    try:
+        program = load_program(args.source)
+    except ParseError as error:
+        report = generate_parse_error_report(error, str(args.source))
+    else:
+        report = generate_program_validation_report(program, str(args.source))
     if args.output:
         write_text(args.output, report)
         print(args.output)
@@ -393,12 +403,17 @@ def legacy_main(arguments: list[str]) -> None:
         default="ir",
     )
     args = parser.parse_args(arguments)
-    source = read_source(args.source)
     if args.emit == "report":
-        print(generate_validation_report(source, str(args.source)), end="")
+        try:
+            program = load_program(args.source)
+        except ParseError as error:
+            report = generate_parse_error_report(error, str(args.source))
+        else:
+            report = generate_program_validation_report(program, str(args.source))
+        print(report, end="")
         return
 
-    ir = compile_text(source)
+    ir = compile_path(args.source)
     if args.emit == "ir":
         print(json.dumps(ir, indent=2, ensure_ascii=False))
     elif args.emit == "canonical":
@@ -413,7 +428,11 @@ def legacy_main(arguments: list[str]) -> None:
 
 
 def compile_path(path: Path) -> dict[str, Any]:
-    return compile_text(read_source(path))
+    try:
+        return compile_program_path(path)
+    except (ParseError, ValidationError) as error:
+        print_error(error)
+        raise SystemExit(1) from error
 
 
 def compile_text(source: str) -> dict[str, Any]:
@@ -428,13 +447,19 @@ def error_payload(error: ParseError | ValidationError) -> dict[str, Any]:
     if isinstance(error, ValidationError):
         diagnostics = [diagnostic.to_dict() for diagnostic in error.diagnostics]
     else:
+        code = getattr(error, "code", "parse_error")
+        path = getattr(error, "path", "/")
         diagnostics = [
             {
-                "code": "parse_error",
+                "code": code,
                 "severity": "error",
                 "message": str(error),
-                "messageJa": f"構文エラー: {error}",
-                "path": "/",
+                "messageJa": (
+                    f"Import解決エラー: {error}"
+                    if code != "parse_error"
+                    else f"構文エラー: {error}"
+                ),
+                "path": path,
                 "scope": [],
             }
         ]
@@ -449,7 +474,9 @@ def print_error(error: ParseError | ValidationError) -> None:
                 file=sys.stderr,
             )
     else:
-        print(f"構文エラー: {error}", file=sys.stderr)
+        code = getattr(error, "code", None)
+        prefix = f"[{code}] Import解決エラー" if code else "構文エラー"
+        print(f"{prefix}: {error}", file=sys.stderr)
 
 
 def read_source(path: Path) -> str:

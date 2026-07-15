@@ -20,7 +20,7 @@ from intentir.pure import (
 )
 
 
-SCHEMA_VERSION = "0.9.0"
+SCHEMA_VERSION = "0.10.0"
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,7 @@ class FieldSpec:
 class EntitySpec:
     name: str
     fields: list[FieldSpec] = field(default_factory=list)
+    defined_in: str = ""
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class FunctionSpec:
     return_type: str = ""
     body: str = ""
     examples: list[str] = field(default_factory=list)
+    defined_in: str = ""
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,7 @@ class ActionSpec:
     requires: list[str] = field(default_factory=list)
     effects: list[str] = field(default_factory=list)
     ensures: list[str] = field(default_factory=list)
+    defined_in: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,10 +80,22 @@ class TestSpec:
     name: str
     whens: list[str] = field(default_factory=list)
     expects: list[str] = field(default_factory=list)
+    defined_in: str = ""
 
     @property
     def when(self) -> str:
         return self.whens[0] if self.whens else ""
+
+
+@dataclass(frozen=True)
+class ImportSpec:
+    path: str
+
+
+@dataclass(frozen=True)
+class ModuleSpec:
+    name: str
+    imports: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -90,27 +105,28 @@ class ProgramSpec:
     functions: list[FunctionSpec] = field(default_factory=list)
     actions: list[ActionSpec] = field(default_factory=list)
     tests: list[TestSpec] = field(default_factory=list)
+    imports: list[ImportSpec] = field(default_factory=list)
+    modules: list[ModuleSpec] = field(default_factory=list)
 
 
 def build_ir(program: ProgramSpec) -> dict[str, Any]:
-    nodes = [
-        *[build_entity_node(entity) for entity in program.entities],
-        *[build_function_node(function) for function in program.functions],
-        *[build_action_node(action) for action in program.actions],
-        *[build_test_node(test) for test in program.tests],
+    definition_nodes = [
+        *[build_entity_node(entity, program.module) for entity in program.entities],
+        *[
+            build_function_node(function, program.module)
+            for function in program.functions
+        ],
+        *[build_action_node(action, program.module) for action in program.actions],
+        *[build_test_node(test, program.module) for test in program.tests],
     ]
+    modules = program.modules or [ModuleSpec(name=program.module)]
+    nodes = [*definition_nodes, *build_module_nodes(modules, definition_nodes)]
     nodes.sort(key=lambda node: node["symbol"])
     symbols = {node["symbol"]: node["id"] for node in nodes}
 
     edges = build_edges(nodes, symbols)
     obligations = build_obligations(nodes)
-    module_id = content_address(
-        {
-            "kind": "module",
-            "name": program.module,
-            "members": sorted(symbols.items()),
-        }
-    )
+    module_id = symbols[f"module:{program.module}"]
 
     ir: dict[str, Any] = {
         "schemaVersion": SCHEMA_VERSION,
@@ -126,10 +142,11 @@ def build_ir(program: ProgramSpec) -> dict[str, Any]:
     return ir
 
 
-def build_entity_node(entity: EntitySpec) -> dict[str, Any]:
+def build_entity_node(entity: EntitySpec, default_module: str) -> dict[str, Any]:
     payload = {
         "kind": "entity",
         "name": entity.name,
+        "definedIn": entity.defined_in or default_module,
         "fields": sorted(
             (field_spec.to_dict() for field_spec in entity.fields),
             key=lambda item: item["name"],
@@ -138,7 +155,9 @@ def build_entity_node(entity: EntitySpec) -> dict[str, Any]:
     return addressed_node(f"entity:{entity.name}", payload)
 
 
-def build_function_node(function: FunctionSpec) -> dict[str, Any]:
+def build_function_node(
+    function: FunctionSpec, default_module: str
+) -> dict[str, Any]:
     expression = parse_pure_expression(function.body)
     body_payload = {"kind": "function_body", "expression": expression}
     body = {
@@ -152,6 +171,7 @@ def build_function_node(function: FunctionSpec) -> dict[str, Any]:
     payload = {
         "kind": "function",
         "name": function.name,
+        "definedIn": function.defined_in or default_module,
         "inputs": [input_spec.to_dict() for input_spec in function.inputs],
         "returnType": function.return_type,
         "body": body,
@@ -171,7 +191,7 @@ def build_function_example(source: str) -> dict[str, Any]:
     return {"id": content_address(payload), "source": source, **payload}
 
 
-def build_action_node(action: ActionSpec) -> dict[str, Any]:
+def build_action_node(action: ActionSpec, default_module: str) -> dict[str, Any]:
     requires = [
         addressed_expression("precondition", expr, parse_requirement(expr))
         for expr in action.requires
@@ -188,6 +208,7 @@ def build_action_node(action: ActionSpec) -> dict[str, Any]:
     payload = {
         "kind": "action",
         "name": action.name,
+        "definedIn": action.defined_in or default_module,
         "inputs": sorted(
             (input_spec.to_dict() for input_spec in action.inputs),
             key=lambda item: item["name"],
@@ -200,7 +221,7 @@ def build_action_node(action: ActionSpec) -> dict[str, Any]:
     return addressed_node(f"action:{action.name}", payload)
 
 
-def build_test_node(test: TestSpec) -> dict[str, Any]:
+def build_test_node(test: TestSpec, default_module: str) -> dict[str, Any]:
     steps = [parse_call(when) for when in test.whens]
     expects = [
         addressed_expression("expectation", expr, parse_expectation(expr))
@@ -209,6 +230,7 @@ def build_test_node(test: TestSpec) -> dict[str, Any]:
     payload = {
         "kind": "test",
         "name": test.name,
+        "definedIn": test.defined_in or default_module,
         "steps": steps,
         "expects": sorted(expects, key=lambda item: item["id"]),
     }
@@ -245,10 +267,73 @@ def build_repository_capabilities(
     return capabilities
 
 
+def build_module_nodes(
+    modules: list[ModuleSpec], definition_nodes: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    modules_by_name = {module.name: module for module in modules}
+    members_by_module: dict[str, list[dict[str, str]]] = {
+        module.name: [] for module in modules
+    }
+    for node in definition_nodes:
+        members_by_module.setdefault(node["definedIn"], []).append(
+            {"symbol": node["symbol"], "memberId": node["id"]}
+        )
+
+    built: dict[str, dict[str, Any]] = {}
+    building: set[str] = set()
+
+    def build(module_name: str) -> dict[str, Any]:
+        if module_name in built:
+            return built[module_name]
+        if module_name in building:
+            raise ValueError(f"module cycle reached while building IR: {module_name}")
+        module = modules_by_name.get(module_name)
+        if module is None:
+            raise ValueError(f"unknown linked module: {module_name}")
+
+        building.add(module_name)
+        dependencies = [build(name) for name in module.imports]
+        payload = {
+            "kind": "module",
+            "name": module.name,
+            "imports": sorted(
+                (
+                    {
+                        "symbol": dependency["symbol"],
+                        "moduleId": dependency["id"],
+                    }
+                    for dependency in dependencies
+                ),
+                key=lambda item: item["symbol"],
+            ),
+            "members": sorted(
+                members_by_module.get(module.name, []),
+                key=lambda item: item["symbol"],
+            ),
+        }
+        node = addressed_node(f"module:{module.name}", payload)
+        building.remove(module_name)
+        built[module_name] = node
+        return node
+
+    for module in modules:
+        build(module.name)
+    return sorted(built.values(), key=lambda node: node["symbol"])
+
+
 def build_edges(nodes: list[dict[str, Any]], symbols: dict[str, str]) -> list[dict[str, Any]]:
     symbolic_edges: list[tuple[str, str, str]] = []
     for node in nodes:
-        if node["kind"] == "function":
+        if node["kind"] == "module":
+            for dependency in node["imports"]:
+                symbolic_edges.append(
+                    (node["symbol"], dependency["symbol"], "imports")
+                )
+            for member in node["members"]:
+                symbolic_edges.append(
+                    (node["symbol"], member["symbol"], "defines")
+                )
+        elif node["kind"] == "function":
             for function_name in function_references(node["body"]["expression"]):
                 target = f"function:{function_name}"
                 symbolic_edges.append((node["symbol"], target, "calls"))

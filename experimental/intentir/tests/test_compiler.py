@@ -8,11 +8,12 @@ import unittest
 from pathlib import Path
 
 from intentir.canonical import canonical_json
-from intentir.compiler import compile_source
+from intentir.compiler import compile_path, compile_source
 from intentir.expressions import parse_effect
 from intentir.formatter import format_source
 from intentir.generators.typescript import generate_typescript
 from intentir.migration import MigrationError, apply_migration, plan_migration
+from intentir.parser import ParseError
 from intentir.reports import generate_validation_report
 from intentir.sqlite_projection import (
     RELATIONAL_STORAGE_FORMAT,
@@ -60,6 +61,7 @@ FUNCTION_SOURCE = (ROOT / "examples" / "functions.intent").read_text(
 FUNCTION_ACTION_SOURCE = (
     ROOT / "examples" / "function_actions.intent"
 ).read_text(encoding="utf-8")
+MODULE_APP_PATH = ROOT / "examples" / "modules" / "app.intent"
 
 MIGRATION_BASE_SOURCE = """
 module Inventory
@@ -74,7 +76,7 @@ class CompilerTest(unittest.TestCase):
     def test_compile_source_builds_content_addressed_graph(self) -> None:
         ir = compile_source(SOURCE)
 
-        self.assertEqual(ir["schemaVersion"], "0.9.0")
+        self.assertEqual(ir["schemaVersion"], "0.10.0")
         self.assertEqual(ir["hashAlgorithm"], "sha256")
         self.assertTrue(ir["moduleId"].startswith("sha256:"))
         self.assertTrue(ir["canonicalHash"].startswith("sha256:"))
@@ -116,6 +118,128 @@ class CompilerTest(unittest.TestCase):
         )
         self.assertEqual(len(ir["obligations"]), 2)
         json.dumps(ir)
+
+    def test_module_imports_build_content_addressed_graph(self) -> None:
+        ir = compile_path(MODULE_APP_PATH)
+        modules = {
+            node["name"]: node for node in ir["nodes"] if node["kind"] == "module"
+        }
+
+        self.assertEqual(set(modules), {"ModularTodo", "TaskDomain", "TextRules"})
+        self.assertEqual(ir["moduleId"], modules["ModularTodo"]["id"])
+        self.assertEqual(
+            {
+                (edge["fromSymbol"], edge["toSymbol"])
+                for edge in ir["edges"]
+                if edge["kind"] == "imports"
+            },
+            {
+                ("module:ModularTodo", "module:TaskDomain"),
+                ("module:TaskDomain", "module:TextRules"),
+            },
+        )
+        origins = {
+            node["symbol"]: node["definedIn"]
+            for node in ir["nodes"]
+            if "definedIn" in node
+        }
+        self.assertEqual(origins["entity:Task"], "TaskDomain")
+        self.assertEqual(origins["function:NormalizeTitle"], "TextRules")
+        self.assertEqual(origins["action:RenameTask"], "ModularTodo")
+        result = verify_ir(ir)
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["tests"][0]["finalState"]["Task"][0]["title"], "modular!"
+        )
+
+    def test_imported_semantics_flow_into_root_module_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependency = root / "math.intent"
+            first_root = root / "first.intent"
+            second_root = root / "second.intent"
+            dependency.write_text(
+                """module Math\n\nfunction Increment:\n  input:\n    value: Integer required\n  returns: Integer\n  body: value + 1\n""",
+                encoding="utf-8",
+            )
+            first_root.write_text(
+                'module App\n\nimport "./math.intent"\n', encoding="utf-8"
+            )
+            second_root.write_text(
+                'module App\n\nimport "math.intent"\n', encoding="utf-8"
+            )
+            first = compile_path(first_root)
+            equivalent = compile_path(second_root)
+            dependency.write_text(
+                dependency.read_text(encoding="utf-8").replace("value + 1", "value + 2"),
+                encoding="utf-8",
+            )
+            changed = compile_path(first_root)
+
+        self.assertEqual(first["moduleId"], equivalent["moduleId"])
+        self.assertEqual(first["canonicalHash"], equivalent["canonicalHash"])
+        self.assertNotEqual(first["moduleId"], changed["moduleId"])
+        self.assertNotEqual(first["canonicalHash"], changed["canonicalHash"])
+
+    def test_import_resolution_rejects_cycles_duplicate_modules_and_missing_files(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a.intent").write_text(
+                'module A\n\nimport "./b.intent"\n', encoding="utf-8"
+            )
+            (root / "b.intent").write_text(
+                'module B\n\nimport "./a.intent"\n', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                ParseError, "import cycle: A -> B -> A"
+            ) as cycle_context:
+                compile_path(root / "a.intent")
+            self.assertEqual(cycle_context.exception.code, "import_cycle")
+
+            (root / "left.intent").write_text("module Shared\n", encoding="utf-8")
+            (root / "right.intent").write_text("module Shared\n", encoding="utf-8")
+            (root / "duplicate.intent").write_text(
+                'module Root\n\nimport "./left.intent"\nimport "./right.intent"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ParseError, "duplicate module name Shared"
+            ) as duplicate_context:
+                compile_path(root / "duplicate.intent")
+            self.assertEqual(duplicate_context.exception.code, "duplicate_module")
+
+            (root / "missing.intent").write_text(
+                'module MissingRoot\n\nimport "./absent.intent"\n', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                ParseError, "cannot read import"
+            ) as missing_context:
+                compile_path(root / "missing.intent")
+            self.assertEqual(missing_context.exception.code, "missing_import")
+
+            (root / "absolute.intent").write_text(
+                f"module AbsoluteRoot\n\nimport {json.dumps(str(root / 'left.intent'))}\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ParseError, "import must be relative"
+            ) as absolute_context:
+                compile_path(root / "absolute.intent")
+            self.assertEqual(absolute_context.exception.code, "absolute_import")
+
+    def test_imports_require_paths_and_are_formatted_canonically(self) -> None:
+        source = "module App\nimport './domain.intent'\n"
+
+        with self.assertRaisesRegex(ParseError, "imports require a source path"):
+            compile_source(source)
+
+        formatted = format_source(source)
+        self.assertEqual(format_source(formatted), formatted)
+        self.assertEqual(
+            formatted, 'module App\n\nimport "./domain.intent"\n'
+        )
 
     def test_pure_functions_build_calls_edges_and_example_obligations(self) -> None:
         ir = compile_source(FUNCTION_SOURCE)
@@ -383,6 +507,52 @@ function Identity:
         payload = json.loads(completed.stdout)
         self.assertTrue(all(result["ok"] for result in payload["results"]))
         self.assertEqual(payload["state"]["tasks"][0]["title"], "ship!")
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_generated_typescript_runs_transitive_imports(self) -> None:
+        output = generate_typescript(compile_path(MODULE_APP_PATH))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "modules.ts"
+            target.write_text(output, encoding="utf-8")
+            script = (
+                f"import({json.dumps(target.as_uri())}).then(m=>{{"
+                "const r=m.runIntentIRTests();"
+                "console.log(JSON.stringify(r));"
+                "if(r.length!==3||r.some(x=>!x.ok))process.exit(1)"
+                "})"
+            )
+            completed = subprocess.run(
+                ["node", "--input-type=module", "-e", script],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(all(result["ok"] for result in json.loads(completed.stdout)))
+
+    def test_cli_resolves_transitive_imports(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "intentir", "test", str(MODULE_APP_PATH)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        report = subprocess.run(
+            [sys.executable, "-m", "intentir", "report", str(MODULE_APP_PATH)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("1 passed, 0 failed, 1 total", completed.stdout)
+        self.assertIn("2 function examples passed", completed.stdout)
+        self.assertEqual(report.returncode, 0, report.stderr)
+        self.assertIn("- Module: 3", report.stdout)
+        self.assertIn("- Import: 2", report.stdout)
 
     def test_function_validation_report_includes_examples(self) -> None:
         report = generate_validation_report(FUNCTION_SOURCE, "functions.intent")

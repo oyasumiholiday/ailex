@@ -1,0 +1,26 @@
+module ModularTodo
+
+import "./task.intent"
+
+action CreateTask:
+  input:
+    id: UUID required
+    title: Text required
+  requires:
+    IsAcceptableTitle(title) equals true
+  effects:
+    insert Task
+
+action RenameTask:
+  input:
+    id: UUID required
+    title: Text required
+  effects:
+    update Task where id equals input.id set title = NormalizeTitle(title)
+  ensures:
+    affected Task.title equals NormalizeTitle(title)
+
+test "transitive imports are executable":
+  when CreateTask(id="task-1", title="draft")
+  when RenameTask(id="task-1", title="modular")
+  expect Task exists with title "modular!"

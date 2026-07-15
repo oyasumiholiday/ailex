@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import ast
 import re
+from dataclasses import replace
 
 from intentir.ir import (
     ActionSpec,
     EntitySpec,
     FieldSpec,
     FunctionSpec,
+    ImportSpec,
     ProgramSpec,
     TestSpec,
 )
@@ -41,6 +43,8 @@ def parse_source(source: str) -> ProgramSpec:
     functions: list[FunctionSpec] = []
     actions: list[ActionSpec] = []
     tests: list[TestSpec] = []
+    imports: list[ImportSpec] = []
+    seen_definition = False
 
     index = 1
     while index < len(lines):
@@ -48,16 +52,32 @@ def parse_source(source: str) -> ProgramSpec:
         if line.indent != 0:
             raise ParseError(f"unexpected indentation on line {line.number}")
 
-        if line.text.startswith("entity ") and line.text.endswith(":"):
+        if line.text.startswith("import "):
+            if seen_definition:
+                raise ParseError(
+                    f"imports must appear before definitions on line {line.number}"
+                )
+            import_spec = parse_import(line)
+            if import_spec.path in {item.path for item in imports}:
+                raise ParseError(
+                    f"duplicate import on line {line.number}: {import_spec.path}"
+                )
+            imports.append(import_spec)
+            index += 1
+        elif line.text.startswith("entity ") and line.text.endswith(":"):
+            seen_definition = True
             entity, index = parse_entity(lines, index)
             entities.append(entity)
         elif line.text.startswith("function ") and line.text.endswith(":"):
+            seen_definition = True
             function, index = parse_function(lines, index)
             functions.append(function)
         elif line.text.startswith("action ") and line.text.endswith(":"):
+            seen_definition = True
             action, index = parse_action(lines, index)
             actions.append(action)
         elif line.text.startswith("test ") and line.text.endswith(":"):
+            seen_definition = True
             test, index = parse_test(lines, index)
             tests.append(test)
         else:
@@ -65,11 +85,25 @@ def parse_source(source: str) -> ProgramSpec:
 
     return ProgramSpec(
         module=module,
-        entities=entities,
-        functions=functions,
-        actions=actions,
-        tests=tests,
+        entities=[replace(entity, defined_in=module) for entity in entities],
+        functions=[replace(function, defined_in=module) for function in functions],
+        actions=[replace(action, defined_in=module) for action in actions],
+        tests=[replace(test, defined_in=module) for test in tests],
+        imports=imports,
     )
+
+
+def parse_import(line: "Line") -> ImportSpec:
+    source = line.text.removeprefix("import ").strip()
+    try:
+        path = ast.literal_eval(source)
+    except (SyntaxError, ValueError) as error:
+        raise ParseError(
+            f"import path must be a quoted string on line {line.number}"
+        ) from error
+    if not isinstance(path, str) or not path:
+        raise ParseError(f"import path is required on line {line.number}")
+    return ImportSpec(path=path)
 
 
 def parse_entity(lines: list["Line"], index: int) -> tuple[EntitySpec, int]:

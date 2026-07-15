@@ -301,7 +301,9 @@ def storage_schema_hash(ir: dict[str, Any]) -> str:
 def storage_schema(ir: dict[str, Any]) -> dict[str, Any]:
     entities = sorted(
         (
-            semantic_projection(node)
+            semantic_projection(
+                {key: value for key, value in node.items() if key != "definedIn"}
+            )
             for node in ir["nodes"]
             if node["kind"] == "entity"
         ),

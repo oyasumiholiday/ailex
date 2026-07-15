@@ -4,9 +4,9 @@ IntentIR is an executable, machine-oriented semantic IR and a compact surface la
 
 The project complements an AI-friendly language such as [Ailex](https://github.com/oyasumiholiday/ailex): concise source is used for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
-Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), and [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md).
+Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), and [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md).
 
-IntentIR v0.9 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), typed pure functions usable from Action contracts and update values, key and unique constraints, relational SQLite storage, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
+IntentIR v0.10 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), content-addressed Module/import linking, typed pure functions usable from Action contracts and update values, key and unique constraints, relational SQLite storage, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
 
 ## Example
 
@@ -81,6 +81,23 @@ action RenameTask:
 
 The end-to-end sample is [examples/function_actions.intent](examples/function_actions.intent).
 
+Programs can be split across files with relative imports. Imports are transitive, path spelling is excluded from semantic hashes, and each Module becomes a content-addressed node:
+
+```intentir
+module ModularTodo
+
+import "./task.intent"
+
+action CreateTask:
+  input:
+    id: UUID required
+    title: Text required
+  effects:
+    insert Task
+```
+
+Imported symbols are currently public and share one flat linked namespace. Import cycles, duplicate Module names, missing files, absolute imports, and duplicate definitions are rejected. The three-file sample starts at [examples/modules/app.intent](examples/modules/app.intent).
+
 ## Commands
 
 ```sh
@@ -91,6 +108,7 @@ python3 -m intentir check examples/todo_crud.intent
 python3 -m intentir test examples/todo_crud.intent
 python3 -m intentir test examples/functions.intent
 python3 -m intentir test examples/function_actions.intent
+python3 -m intentir test examples/modules/app.intent
 
 # Evaluate a pure function
 python3 -m intentir call examples/functions.intent ClampDouble \
@@ -136,10 +154,14 @@ python3 -m intentir examples/todo.intent --emit verify
 python3 -m intentir examples/todo.intent --emit typescript
 ```
 
-## v0.9 capabilities
+## v0.10 capabilities
 
 - Content-addressed entity, action, test, edge, effect, and obligation nodes
 - Canonical JSON and a module-level SHA-256 semantic hash
+- Relative and transitive file imports with deterministic path resolution
+- Content-addressed Module nodes and `imports` / `defines` dependency edges
+- Import-cycle, duplicate-Module, duplicate-symbol, missing-file, and absolute-path rejection
+- Dependency hashes propagated into the root Module ID
 - Scalar types: `Boolean`, `Integer`, `Number`, `Text`, `UUID`
 - Typed pure functions with required/default inputs and scalar return values
 - Structured arithmetic, comparison, boolean, unary, call, and conditional expressions
@@ -177,6 +199,7 @@ In `relational-v1`, each Entity has a deterministic physical table and each Fiel
 
 ## Architecture
 
+- `intentir/compiler.py`: recursive file loading, import resolution, and Module linking
 - `intentir/parser.py`: indentation-sensitive surface parser
 - `intentir/expressions.py`: structured conditions, effects, calls, and expectations
 - `intentir/pure.py`: safe lowering for typed pure expressions and function examples
@@ -198,8 +221,8 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The suite contains 46 tests, including Action-to-Function typing and atomic failure, pure-function canonicalization and Python/Node.js execution, relational projection, physical SQLite constraints, metadata tamper protection, migration table-rebuild rollback, v0.5/v0.6 database compatibility, and cross-process persistence.
+The suite contains 52 tests, including Module linking and dependency-hash propagation, import diagnostics, Action-to-Function typing and atomic failure, pure-function canonicalization and Python/Node.js execution, relational projection, physical SQLite constraints, metadata tamper protection, migration table-rebuild rollback, v0.5/v0.6 database compatibility, and cross-process persistence.
 
 ## Current boundaries
 
-Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. SQLite stores Entity records in relational tables, but the interpreter still rewrites a complete Module State per Action rather than issuing incremental SQL. IntentIR also lacks Entity relationships, modules/imports, package management, declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is Module/import support, followed by Entity relations, incremental repositories, and hash-guarded Patch IR for AI edits.
+Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. SQLite stores Entity records in relational tables, but the interpreter still rewrites a complete Module State per Action rather than issuing incremental SQL. IntentIR also lacks Entity relationships, declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is Entity relations and incremental repositories, followed by explicit external capabilities and hash-guarded Patch IR for AI edits.

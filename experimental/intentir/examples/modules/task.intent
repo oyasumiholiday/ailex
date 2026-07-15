@@ -1,0 +1,7 @@
+module TaskDomain
+
+import "./text.intent"
+
+entity Task:
+  id: UUID required key
+  title: Text required

@@ -1,6 +1,6 @@
 [project]
 name = "intentir"
-version = "0.9.0"
+version = "0.10.0"
 description = "A content-addressed semantic IR with executable contracts for AI development workflows."
 requires-python = ">=3.11"
 dependencies = []

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from intentir.ir import build_ir
+from intentir.ir import ProgramSpec, build_ir
 from intentir.parser import ParseError, parse_source
 from intentir.sqlite_projection import sqlite_projection
 from intentir.storage import storage_schema, storage_schema_hash
@@ -9,6 +9,7 @@ from intentir.verifier import verify_ir
 
 
 CHECK_ITEMS = [
+    "Module/importの相対解決、循環、同名衝突、依存Hash",
     "重複定義、シンボル衝突、組み込み型、デフォルト値",
     "Requirement / Ensure の参照先と型の整合性",
     "純粋FunctionのInput、Return、式、呼出し、循環依存、Example",
@@ -52,21 +53,41 @@ HINTS_JA = {
 
 def generate_validation_report(source: str, source_name: str | None = None) -> str:
     target = source_name or "(memory)"
-    lines = ["# IntentIR 検証レポート", "", f"- 対象: `{target}`"]
-
     try:
         program = parse_source(source)
     except ParseError as error:
-        lines.extend(
-            [
-                "- 結果: 失敗",
-                "",
-                "## 構文エラー",
-                "",
-                f"- {error}",
-            ]
+        return generate_parse_error_report(error, target)
+    if program.imports:
+        return generate_parse_error_report(
+            ParseError("imports require a source path; use the report command"),
+            target,
         )
-        return "\n".join(lines) + "\n"
+    return generate_program_validation_report(program, target)
+
+
+def generate_parse_error_report(error: ParseError, source_name: str) -> str:
+    code = getattr(error, "code", None)
+    path = getattr(error, "path", None)
+    detail = f"- [{code}] {error}" if code else f"- {error}"
+    lines = [
+        "# IntentIR 検証レポート",
+        "",
+        f"- 対象: `{source_name}`",
+        "- 結果: 失敗",
+        "",
+        "## 構文・Importエラー",
+        "",
+        detail,
+    ]
+    if path:
+        lines.append(f"- Path: `{path}`")
+    return "\n".join([*lines, ""])
+
+
+def generate_program_validation_report(
+    program: ProgramSpec, source_name: str
+) -> str:
+    lines = ["# IntentIR 検証レポート", "", f"- 対象: `{source_name}`"]
 
     diagnostics = collect_diagnostics(program)
     ir = build_ir(program) if not diagnostics else None
@@ -80,6 +101,8 @@ def generate_validation_report(source: str, source_name: str | None = None) -> s
             "",
             "## 概要",
             "",
+            f"- Module: {len(program.modules) or 1}",
+            f"- Import: {sum(len(module.imports) for module in program.modules)}",
             f"- Entity: {len(program.entities)}",
             f"- Function: {len(program.functions)}",
             f"- Action: {len(program.actions)}",
