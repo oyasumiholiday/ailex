@@ -1,0 +1,46 @@
+module ProjectTasks
+
+entity Project:
+  id: UUID required key
+  name: Text required
+
+entity Task:
+  id: UUID required key
+  projectId: UUID required ref Project.id
+  title: Text required
+  done: Boolean default false
+
+action CreateProject:
+  input:
+    id: UUID required
+    name: Text required
+  effects:
+    insert Project
+
+action CreateTask:
+  input:
+    id: UUID required
+    projectId: UUID required
+    title: Text required
+  effects:
+    insert Task
+
+action RenameTask:
+  input:
+    id: UUID required
+    title: Text required
+  effects:
+    update Task where id equals input.id set title = input.title
+
+action DeleteProject:
+  input:
+    id: UUID required
+  effects:
+    delete Project where id equals input.id
+
+test "project task lifecycle":
+  when CreateProject(id="project-1", name="Ailex")
+  when CreateTask(id="task-1", projectId="project-1", title="design relations")
+  when RenameTask(id="task-1", title="verify relations")
+  expect Project count equals 1
+  expect Task exists with title "verify relations"

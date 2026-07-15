@@ -1,0 +1,17 @@
+module TextRules
+
+function IsAcceptableTitle:
+  input:
+    title: Text required
+  returns: Boolean
+  body: title != ""
+  examples:
+    IsAcceptableTitle(title="task") equals true
+
+function NormalizeTitle:
+  input:
+    title: Text required
+  returns: Text
+  body: title + "!"
+  examples:
+    NormalizeTitle(title="task") equals "task!"

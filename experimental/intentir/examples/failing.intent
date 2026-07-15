@@ -1,0 +1,19 @@
+module FailingTodo
+
+entity Task:
+  title: Text required
+  done: Boolean default false
+
+action CreateTask:
+  input:
+    title: Text
+  requires:
+    title is not empty
+  effects:
+    insert Task
+  ensures:
+    created Task.title equals input.title
+
+test "detects semantic mismatch":
+  when CreateTask(title="buy milk")
+  expect Task exists with title "sleep"

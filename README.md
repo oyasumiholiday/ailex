@@ -72,4 +72,5 @@ Types `Int / Float / Bool / String / List[T] / Option[T] / records / (T)->U`, ty
 | [README.ja.md](README.ja.md) | この README の日本語版 | 日本語 |
 | [SPEC.md](SPEC.md) | Spec and design history | 日本語 |
 | [CHANGELOG.md](CHANGELOG.md) | Version history with evidence links | 日本語 |
+| [experimental/intentir/](experimental/intentir/) | Experimental content-addressed semantic IR, contracts, CRUD, and SQLite state | English / 日本語 |
 | [DOGFOOD.md](DOGFOOD.md) / [EXPERIMENTS.md](EXPERIMENTS.md) | Pain-point log / measurement log (incl. negative results) | 日本語 |

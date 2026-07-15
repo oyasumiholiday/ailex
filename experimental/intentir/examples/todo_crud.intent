@@ -1,0 +1,60 @@
+module TodoCrud
+
+entity Task:
+  id: UUID required key
+  title: Text required
+  done: Boolean default false
+
+action CreateTask:
+  input:
+    id: UUID required
+    title: Text required
+  requires:
+    title is not empty
+  effects:
+    insert Task
+  ensures:
+    created Task.id equals input.id
+    created Task.title equals input.title
+
+action CompleteTask:
+  input:
+    id: UUID required
+  effects:
+    update Task where id equals input.id set done = true
+  ensures:
+    affected Task.id equals input.id
+    affected Task.done equals true
+
+action RenameTask:
+  input:
+    id: UUID required
+    title: Text required
+  requires:
+    title is not empty
+  effects:
+    update Task where id equals input.id set title = input.title
+  ensures:
+    affected Task.title equals input.title
+
+action DeleteTask:
+  input:
+    id: UUID required
+  effects:
+    delete Task where id equals input.id
+  ensures:
+    affected Task.id equals input.id
+
+test "タスクを完了して改名できる":
+  when CreateTask(id="task-1", title="牛乳を買う")
+  when CompleteTask(id="task-1")
+  when RenameTask(id="task-1", title="牛乳を2本買う")
+  expect Task count equals 1
+  expect Task exists with done true
+  expect Task exists with title "牛乳を2本買う"
+
+test "タスクを削除できる":
+  when CreateTask(id="task-2", title="削除対象")
+  when DeleteTask(id="task-2")
+  expect Task count equals 0
+  expect no Task exists with id "task-2"
