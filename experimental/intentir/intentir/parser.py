@@ -256,6 +256,8 @@ def parse_field(text: str, line_number: int) -> FieldSpec:
     default: str | None = None
     key = False
     unique = False
+    reference_entity: str | None = None
+    reference_field: str | None = None
 
     if rest:
         tokens = rest.split()
@@ -271,6 +273,23 @@ def parse_field(text: str, line_number: int) -> FieldSpec:
             elif token == "unique":
                 unique = True
                 cursor += 1
+            elif token == "ref":
+                if cursor + 1 >= len(tokens):
+                    raise ParseError(f"reference target missing on line {line_number}")
+                target = tokens[cursor + 1]
+                parts = target.split(".")
+                if (
+                    len(parts) != 2
+                    or not IDENTIFIER_RE.fullmatch(parts[0])
+                    or not IDENTIFIER_RE.fullmatch(parts[1])
+                ):
+                    raise ParseError(
+                        f"invalid reference target on line {line_number}: {target}"
+                    )
+                if reference_entity is not None:
+                    raise ParseError(f"duplicate reference on line {line_number}")
+                reference_entity, reference_field = parts
+                cursor += 2
             elif token == "default":
                 if cursor + 1 >= len(tokens):
                     raise ParseError(f"default value missing on line {line_number}")
@@ -286,6 +305,8 @@ def parse_field(text: str, line_number: int) -> FieldSpec:
         default=default,
         key=key,
         unique=unique,
+        reference_entity=reference_entity,
+        reference_field=reference_field,
     )
 
 

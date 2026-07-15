@@ -9,6 +9,7 @@ from typing import Any, Iterator, Protocol
 from intentir.canonical import canonical_json, content_address, semantic_projection
 from intentir.sqlite_projection import (
     RELATIONAL_STORAGE_FORMAT,
+    order_projection_entities,
     physical_name,
     quote_identifier,
     render_create_table,
@@ -33,6 +34,7 @@ class SQLiteStateRepository:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, isolation_level=None)
         self.connection.execute("PRAGMA busy_timeout = 5000")
+        self.connection.execute("PRAGMA foreign_keys = ON")
         self.connection.execute("PRAGMA journal_mode = WAL")
         self.connection.execute(
             """
@@ -137,6 +139,22 @@ class SQLiteStateRepository:
             with self.transaction():
                 self._save(ir, state)
 
+    def save_changes(
+        self,
+        ir: dict[str, Any],
+        before_state: dict[str, Any],
+        after_state: dict[str, Any],
+        changed_entities: set[str],
+    ) -> str:
+        if self.connection.in_transaction:
+            return self._save_changes(
+                ir, before_state, after_state, changed_entities
+            )
+        with self.transaction():
+            return self._save_changes(
+                ir, before_state, after_state, changed_entities
+            )
+
     def _save(self, ir: dict[str, Any], state: dict[str, Any]) -> None:
         schema = storage_schema(ir)
         normalized = normalize_state(ir, state)
@@ -164,6 +182,98 @@ class SQLiteStateRepository:
             ),
         )
 
+    def _save_changes(
+        self,
+        ir: dict[str, Any],
+        before_state: dict[str, Any],
+        after_state: dict[str, Any],
+        changed_entities: set[str],
+    ) -> str:
+        stored = self.inspect(ir["module"])
+        if stored is None:
+            self._save(ir, after_state)
+            return "replace"
+
+        expected_hash = storage_schema_hash(ir)
+        if stored["schemaHash"] != expected_hash:
+            raise StorageError(
+                f"database schema mismatch for module {ir['module']}: "
+                f"stored {stored['schemaHash']}, expected {expected_hash}"
+            )
+        if stored["storageFormat"] != RELATIONAL_STORAGE_FORMAT:
+            self._save(ir, after_state)
+            return "replace"
+
+        normalized_before = normalize_state(ir, before_state)
+        normalized_after = normalize_state(ir, after_state)
+        if stored["state"] != normalized_before:
+            raise StorageError(
+                f"database state changed before saving module {ir['module']}"
+            )
+        actual_changes = {
+            name
+            for name in normalized_after
+            if normalized_before[name] != normalized_after[name]
+        }
+        if not actual_changes <= changed_entities:
+            missing = ", ".join(sorted(actual_changes - changed_entities))
+            raise StorageError(f"changed entities were not declared: {missing}")
+
+        schema = storage_schema(ir)
+        projection = sqlite_projection(ir["module"], schema)
+        entities = {entity["entity"]: entity for entity in projection["entities"]}
+        unknown = sorted(changed_entities - set(entities))
+        if unknown:
+            raise StorageError(
+                f"changed state contains unknown entities: {', '.join(unknown)}"
+            )
+        changed = set(changed_entities)
+        if any(entity_key(entities[name]) is None for name in changed):
+            self._save(ir, normalized_after)
+            return "replace"
+
+        ordered = order_projection_entities(projection["entities"])
+        self.connection.execute("PRAGMA defer_foreign_keys = ON")
+        for entity in reversed(ordered):
+            if entity["entity"] in changed:
+                self.delete_changed_records(
+                    entity,
+                    normalized_before[entity["entity"]],
+                    normalized_after[entity["entity"]],
+                )
+        for entity in ordered:
+            if entity["entity"] in changed:
+                self.insert_changed_records(
+                    entity,
+                    normalized_before[entity["entity"]],
+                    normalized_after[entity["entity"]],
+                )
+        for entity in ordered:
+            if entity["entity"] in changed:
+                self.update_changed_records(
+                    entity,
+                    normalized_before[entity["entity"]],
+                    normalized_after[entity["entity"]],
+                )
+
+        self.connection.execute(
+            """
+            UPDATE intentir_state SET
+                schema_json = ?,
+                state_json = ?,
+                storage_format = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE module = ?
+            """,
+            (
+                canonical_json(schema),
+                canonical_json({}),
+                RELATIONAL_STORAGE_FORMAT,
+                ir["module"],
+            ),
+        )
+        return "incremental"
+
     def replace_relational_state(
         self,
         module: str,
@@ -184,14 +294,13 @@ class SQLiteStateRepository:
                     f"unsafe relational table metadata for "
                     f"{module}.{relation['entity']}"
                 )
-            self.connection.execute(
-                f"DROP TABLE {quote_identifier(relation['table'])}"
-            )
+        for relation in self.relation_drop_order(old_relations):
+            self.connection.execute(f"DROP TABLE {quote_identifier(relation['table'])}")
         self.connection.execute(
             "DELETE FROM intentir_relations WHERE module = ?", (module,)
         )
 
-        for entity in projection["entities"]:
+        for entity in order_projection_entities(projection["entities"]):
             table_name = entity["table"]
             self.connection.execute(
                 f"DROP TABLE IF EXISTS {quote_identifier(table_name)}"
@@ -203,6 +312,33 @@ class SQLiteStateRepository:
                 (module, entity["entity"], table_name, entity["id"]),
             )
             self.insert_records(entity, state[entity["entity"]])
+
+    def relation_drop_order(
+        self, relations: list[dict[str, str]]
+    ) -> list[dict[str, str]]:
+        by_table = {relation["table"]: relation for relation in relations}
+        dependencies: dict[str, set[str]] = {}
+        for table in by_table:
+            dependencies[table] = {
+                row[2]
+                for row in self.connection.execute(
+                    f"PRAGMA foreign_key_list({quote_identifier(table)})"
+                )
+                if row[2] in by_table
+            }
+        ordered: list[str] = []
+        completed: set[str] = set()
+        while len(completed) < len(by_table):
+            ready = sorted(
+                table
+                for table, targets in dependencies.items()
+                if table not in completed and targets <= completed
+            )
+            if not ready:
+                raise StorageError("cyclic relational table metadata")
+            ordered.extend(ready)
+            completed.update(ready)
+        return [by_table[table] for table in reversed(ordered)]
 
     def insert_records(
         self, entity: dict[str, Any], records: list[dict[str, Any]]
@@ -230,6 +366,91 @@ class SQLiteStateRepository:
                 for column in columns
             ]
             self.connection.execute(statement, values)
+
+    def delete_changed_records(
+        self,
+        entity: dict[str, Any],
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+    ) -> None:
+        key = entity_key(entity)
+        if key is None:
+            raise StorageError(f"entity {entity['entity']} has no key")
+        before_by_key = records_by_key(entity, before)
+        after_by_key = records_by_key(entity, after)
+        statement = (
+            f"DELETE FROM {quote_identifier(entity['table'])} "
+            f"WHERE {quote_identifier(key['column'])} = ?"
+        )
+        for value in sorted(
+            set(before_by_key) - set(after_by_key), key=repr
+        ):
+            cursor = self.connection.execute(
+                statement, (encode_sqlite_value(value, key["type"]),)
+            )
+            if cursor.rowcount != 1:
+                raise StorageError(
+                    f"incremental delete lost {entity['entity']} key {value!r}"
+                )
+
+    def insert_changed_records(
+        self,
+        entity: dict[str, Any],
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+    ) -> None:
+        before_by_key = records_by_key(entity, before)
+        key = entity_key(entity)
+        if key is None:
+            raise StorageError(f"entity {entity['entity']} has no key")
+        inserted = [
+            record
+            for record in after
+            if record[key["field"]] not in before_by_key
+        ]
+        self.insert_records(entity, inserted)
+
+    def update_changed_records(
+        self,
+        entity: dict[str, Any],
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+    ) -> None:
+        key = entity_key(entity)
+        if key is None:
+            raise StorageError(f"entity {entity['entity']} has no key")
+        before_by_key = records_by_key(entity, before)
+        for record in after:
+            key_value = record[key["field"]]
+            previous = before_by_key.get(key_value)
+            if previous is None:
+                continue
+            changed_columns = [
+                column
+                for column in entity["columns"]
+                if not column["key"]
+                and previous.get(column["field"]) != record.get(column["field"])
+            ]
+            if not changed_columns:
+                continue
+            assignments = ", ".join(
+                f"{quote_identifier(column['column'])} = ?"
+                for column in changed_columns
+            )
+            statement = (
+                f"UPDATE {quote_identifier(entity['table'])} SET {assignments} "
+                f"WHERE {quote_identifier(key['column'])} = ?"
+            )
+            values = [
+                encode_sqlite_value(record.get(column["field"]), column["type"])
+                for column in changed_columns
+            ]
+            values.append(encode_sqlite_value(key_value, key["type"]))
+            cursor = self.connection.execute(statement, values)
+            if cursor.rowcount != 1:
+                raise StorageError(
+                    f"incremental update lost {entity['entity']} key {key_value!r}"
+                )
 
     def load_relational_state(
         self, module: str, schema: dict[str, Any]
@@ -314,6 +535,19 @@ def storage_schema(ir: dict[str, Any]) -> dict[str, Any]:
 
 def empty_storage_schema() -> dict[str, Any]:
     return {"kind": "storage-schema", "entities": []}
+
+
+def entity_key(entity: dict[str, Any]) -> dict[str, Any] | None:
+    return next((column for column in entity["columns"] if column["key"]), None)
+
+
+def records_by_key(
+    entity: dict[str, Any], records: list[dict[str, Any]]
+) -> dict[Any, dict[str, Any]]:
+    key = entity_key(entity)
+    if key is None:
+        raise StorageError(f"entity {entity['entity']} has no key")
+    return {record[key["field"]]: record for record in records}
 
 
 def parse_stored_json(source: str, module: str, kind: str) -> Any:

@@ -15,7 +15,8 @@ CHECK_ITEMS = [
     "純粋FunctionのInput、Return、式、呼出し、循環依存、Example",
     "Effect の対象、CRUD操作、更新値の型、必須 Field への値の供給",
     "Key / Unique制約、Effect selectorの一意性、Stateの整合性",
-    "SQLite関係表、列型、NOT NULL、Key / Unique制約の決定的投影",
+    "Entity参照先の存在、一意性、型、循環と実行時参照整合性",
+    "SQLite関係表、列型、Key / Unique / Foreign Key制約の決定的投影",
     "Test の Action、Input、リテラル型、期待対象",
     "内容アドレス、依存 Edge、検証義務の決定的生成",
     "事前条件、Effect、事後条件、期待値の実行検証",
@@ -48,6 +49,11 @@ HINTS_JA = {
     "effect_binding_type_mismatch": "InputとEntity Fieldの型を一致させてください。",
     "condition_type_mismatch": "互換性のある型同士を比較してください。",
     "empty_test": "少なくとも1つのexpectを追加してください。",
+    "unknown_reference_entity": "Scope内のEntityを参照先にしてください。",
+    "unknown_reference_field": "参照先EntityのScope内にあるFieldを使用してください。",
+    "non_unique_reference_target": "KeyまたはUnique Fieldを参照してください。",
+    "reference_type_mismatch": "参照元と参照先Fieldの型を一致させてください。",
+    "relation_cycle": "循環を取り除き、親から子への非循環参照にしてください。",
 }
 
 

@@ -33,7 +33,7 @@ def sqlite_projection(
 def project_entity(module: str, entity: dict[str, Any]) -> dict[str, Any]:
     fields = sorted(entity.get("fields", []), key=lambda item: item["name"])
     order_column = internal_order_column({field["name"] for field in fields})
-    columns = [project_field(field) for field in fields]
+    columns = [project_field(module, field) for field in fields]
     payload = {
         "kind": "sqlite-entity",
         "entity": entity["name"],
@@ -44,7 +44,7 @@ def project_entity(module: str, entity: dict[str, Any]) -> dict[str, Any]:
     return {"id": content_address(payload), **payload}
 
 
-def project_field(field: dict[str, Any]) -> dict[str, Any]:
+def project_field(module: str, field: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "field": field["name"],
         "column": field["name"],
@@ -56,6 +56,14 @@ def project_field(field: dict[str, Any]) -> dict[str, Any]:
     }
     if "default" in field:
         payload["default"] = field["default"]
+    if "references" in field:
+        reference = field["references"]
+        payload["references"] = {
+            "entity": reference["entity"],
+            "field": reference["field"],
+            "table": physical_name("entity", module, reference["entity"]),
+            "column": reference["field"],
+        }
     return {"id": content_address(payload), **payload}
 
 
@@ -65,7 +73,7 @@ def render_sqlite_ddl(module: str, schema: dict[str, Any]) -> str:
         f"-- IntentIR SQLite projection {projection['id']}",
         f"-- module: {module}",
     ]
-    for entity in projection["entities"]:
+    for entity in order_projection_entities(projection["entities"]):
         lines.extend(
             ("", f"-- entity: {entity['entity']}", render_create_table(entity) + ";")
         )
@@ -92,7 +100,48 @@ def render_column(column: dict[str, Any]) -> str:
     if column["unique"]:
         parts.append("UNIQUE")
     parts.append(sqlite_type_check(name, column["type"]))
+    if "references" in column:
+        reference = column["references"]
+        parts.extend(
+            [
+                "REFERENCES",
+                quote_identifier(reference["table"]),
+                f"({quote_identifier(reference['column'])})",
+                "ON UPDATE RESTRICT",
+                "ON DELETE RESTRICT",
+            ]
+        )
     return " ".join(parts)
+
+
+def order_projection_entities(
+    entities: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_name = {entity["entity"]: entity for entity in entities}
+    dependencies = {
+        name: {
+            column["references"]["entity"]
+            for column in entity["columns"]
+            if "references" in column
+            and column["references"]["entity"] in by_name
+        }
+        for name, entity in by_name.items()
+    }
+    ordered: list[dict[str, Any]] = []
+    completed: set[str] = set()
+    while len(completed) < len(by_name):
+        ready = sorted(
+            name
+            for name, targets in dependencies.items()
+            if name not in completed and targets <= completed
+        )
+        if not ready:
+            unresolved = ", ".join(sorted(set(by_name) - completed))
+            raise ValueError(f"cyclic SQLite entity references: {unresolved}")
+        for name in ready:
+            ordered.append(by_name[name])
+            completed.add(name)
+    return ordered
 
 
 def sqlite_type(type_name: str) -> str:

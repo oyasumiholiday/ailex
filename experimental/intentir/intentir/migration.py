@@ -204,6 +204,10 @@ def migration_operation(
 def classify_field_change(before: dict[str, Any], after: dict[str, Any]) -> str:
     if before.get("type") != after.get("type"):
         return "manual"
+    before_reference = before.get("references")
+    after_reference = after.get("references")
+    if before_reference != after_reference:
+        return "safe" if before_reference and not after_reference else "manual"
     if not before.get("required") and after.get("required") and "default" not in after:
         return "manual"
     return "safe"

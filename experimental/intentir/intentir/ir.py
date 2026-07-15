@@ -20,7 +20,7 @@ from intentir.pure import (
 )
 
 
-SCHEMA_VERSION = "0.10.0"
+SCHEMA_VERSION = "0.11.0"
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,8 @@ class FieldSpec:
     default: str | None = None
     key: bool = False
     unique: bool = False
+    reference_entity: str | None = None
+    reference_field: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -45,6 +47,11 @@ class FieldSpec:
             data["unique"] = True
         elif self.unique:
             data["unique"] = True
+        if self.reference_entity and self.reference_field:
+            data["references"] = {
+                "entity": self.reference_entity,
+                "field": self.reference_field,
+            }
         return data
 
 
@@ -333,6 +340,17 @@ def build_edges(nodes: list[dict[str, Any]], symbols: dict[str, str]) -> list[di
                 symbolic_edges.append(
                     (node["symbol"], member["symbol"], "defines")
                 )
+        elif node["kind"] == "entity":
+            for field in node["fields"]:
+                reference = field.get("references")
+                if reference:
+                    symbolic_edges.append(
+                        (
+                            node["symbol"],
+                            f"entity:{reference['entity']}",
+                            "references",
+                        )
+                    )
         elif node["kind"] == "function":
             for function_name in function_references(node["body"]["expression"]):
                 target = f"function:{function_name}"

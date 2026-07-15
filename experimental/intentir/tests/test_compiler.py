@@ -62,6 +62,9 @@ FUNCTION_ACTION_SOURCE = (
     ROOT / "examples" / "function_actions.intent"
 ).read_text(encoding="utf-8")
 MODULE_APP_PATH = ROOT / "examples" / "modules" / "app.intent"
+RELATION_SOURCE = (ROOT / "examples" / "relations.intent").read_text(
+    encoding="utf-8"
+)
 
 MIGRATION_BASE_SOURCE = """
 module Inventory
@@ -73,10 +76,100 @@ entity Item:
 
 
 class CompilerTest(unittest.TestCase):
+    def test_entity_references_build_ir_edges_and_format_canonically(self) -> None:
+        ir = compile_source(RELATION_SOURCE)
+        task = next(node for node in ir["nodes"] if node["symbol"] == "entity:Task")
+        project_id = next(
+            field for field in task["fields"] if field["name"] == "projectId"
+        )
+
+        self.assertEqual(
+            project_id["references"], {"entity": "Project", "field": "id"}
+        )
+        self.assertIn(
+            ("entity:Task", "entity:Project", "references"),
+            {
+                (edge["fromSymbol"], edge["toSymbol"], edge["kind"])
+                for edge in ir["edges"]
+            },
+        )
+        formatted = format_source(RELATION_SOURCE)
+        self.assertEqual(format_source(formatted), formatted)
+        self.assertIn("projectId: UUID required ref Project.id", formatted)
+
+    def test_reference_validation_rejects_invalid_targets_and_cycles(self) -> None:
+        source = """
+module InvalidRelations
+
+entity Parent:
+  id: UUID required key
+  label: Text
+  childId: UUID ref Child.id
+
+entity Child:
+  id: UUID required key
+  parentId: UUID ref Parent.id
+  missingEntity: UUID ref Missing.id
+  missingField: UUID ref Parent.missing
+  nonUnique: Text ref Parent.label
+  wrongType: Integer ref Parent.id
+"""
+
+        with self.assertRaises(ValidationError) as context:
+            compile_source(source)
+
+        codes = {item.code for item in context.exception.diagnostics}
+        self.assertTrue(
+            {
+                "unknown_reference_entity",
+                "unknown_reference_field",
+                "non_unique_reference_target",
+                "reference_type_mismatch",
+                "relation_cycle",
+            }
+            <= codes
+        )
+
+    def test_reference_constraints_are_atomic_in_python_runtime(self) -> None:
+        ir = compile_source(RELATION_SOURCE)
+        orphan = run_action(
+            ir,
+            "CreateTask",
+            {"id": "task-1", "projectId": "missing", "title": "orphan"},
+        )
+        project = run_action(
+            ir, "CreateProject", {"id": "project-1", "name": "Ailex"}
+        )
+        task = run_action(
+            ir,
+            "CreateTask",
+            {
+                "id": "task-1",
+                "projectId": "project-1",
+                "title": "linked",
+            },
+            project["state"],
+        )
+        rejected_delete = run_action(
+            ir, "DeleteProject", {"id": "project-1"}, task["state"]
+        )
+
+        self.assertFalse(orphan["ok"])
+        self.assertEqual(
+            orphan["errors"][0]["code"], "reference_constraint_violation"
+        )
+        self.assertEqual(orphan["state"], {"Project": [], "Task": []})
+        self.assertFalse(rejected_delete["ok"])
+        self.assertEqual(
+            rejected_delete["errors"][0]["code"],
+            "reference_constraint_violation",
+        )
+        self.assertEqual(rejected_delete["state"], task["state"])
+
     def test_compile_source_builds_content_addressed_graph(self) -> None:
         ir = compile_source(SOURCE)
 
-        self.assertEqual(ir["schemaVersion"], "0.10.0")
+        self.assertEqual(ir["schemaVersion"], "0.11.0")
         self.assertEqual(ir["hashAlgorithm"], "sha256")
         self.assertTrue(ir["moduleId"].startswith("sha256:"))
         self.assertTrue(ir["canonicalHash"].startswith("sha256:"))
@@ -913,10 +1006,13 @@ action ChangeEmail:
 
         self.assertEqual(create.returncode, 0, create.stderr)
         self.assertEqual(complete.returncode, 0, complete.stderr)
+        created = json.loads(create.stdout)
         result = json.loads(complete.stdout)
         self.assertTrue(result["state"]["Task"][0]["done"])
         self.assertEqual(result["storage"]["kind"], "sqlite")
         self.assertEqual(result["storage"]["format"], RELATIONAL_STORAGE_FORMAT)
+        self.assertEqual(created["storage"]["writeMode"], "replace")
+        self.assertEqual(result["storage"]["writeMode"], "incremental")
 
     def test_sqlite_rejects_changed_entity_schema(self) -> None:
         original = compile_source(CRUD_SOURCE)
@@ -999,6 +1095,87 @@ action ChangeEmail:
         column_names = {column[1] for column in columns}
         self.assertTrue({"id", "title", "done"} <= column_names)
 
+    def test_sqlite_projects_and_enforces_entity_references(self) -> None:
+        ir = compile_source(RELATION_SOURCE)
+        projection = sqlite_projection(ir["module"], storage_schema(ir))
+        entities = {entity["entity"]: entity for entity in projection["entities"]}
+        project = entities["Project"]
+        task = entities["Task"]
+        state = {
+            "Project": [{"id": "project-1", "name": "Ailex"}],
+            "Task": [
+                {
+                    "id": "task-1",
+                    "projectId": "project-1",
+                    "title": "linked",
+                    "done": False,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "relations.db"
+            with SQLiteStateRepository(database) as repository:
+                repository.save(ir, state)
+                foreign_keys = repository.connection.execute(
+                    f'PRAGMA foreign_key_list("{task["table"]}")'
+                ).fetchall()
+                with self.assertRaises(sqlite3.IntegrityError):
+                    repository.connection.execute(
+                        f'INSERT INTO "{task["table"]}" '
+                        '("id", "projectId", "title", "done") '
+                        "VALUES (?, ?, ?, ?)",
+                        ("task-2", "missing", "orphan", 0),
+                    )
+                with self.assertRaises(sqlite3.IntegrityError):
+                    repository.connection.execute(
+                        f'DELETE FROM "{project["table"]}" WHERE "id" = ?',
+                        ("project-1",),
+                    )
+
+        self.assertEqual(len(foreign_keys), 1)
+        self.assertEqual(foreign_keys[0][2], project["table"])
+        self.assertEqual(foreign_keys[0][3:5], ("projectId", "id"))
+
+    def test_sqlite_keyed_actions_persist_only_changed_rows(self) -> None:
+        ir = compile_source(RELATION_SOURCE)
+        initial = {
+            "Project": [{"id": "project-1", "name": "Ailex"}],
+            "Task": [
+                {
+                    "id": "task-1",
+                    "projectId": "project-1",
+                    "title": "before",
+                    "done": False,
+                }
+            ],
+        }
+        renamed = run_action(
+            ir,
+            "RenameTask",
+            {"id": "task-1", "title": "after"},
+            initial,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "incremental.db"
+            with SQLiteStateRepository(database) as repository:
+                repository.save(ir, initial)
+                statements: list[str] = []
+                repository.connection.set_trace_callback(statements.append)
+                mode = repository.save_changes(
+                    ir, initial, renamed["state"], {"Task"}
+                )
+                repository.connection.set_trace_callback(None)
+                loaded = repository.load(ir)
+
+        upper = [statement.lstrip().upper() for statement in statements]
+        self.assertEqual(mode, "incremental")
+        self.assertTrue(any(statement.startswith("UPDATE ") for statement in upper))
+        self.assertFalse(any("CREATE TABLE" in statement for statement in upper))
+        self.assertFalse(any(statement.startswith("DROP TABLE") for statement in upper))
+        self.assertEqual(loaded, renamed["state"])
+
     def test_v06_json_database_converts_to_relational_storage(self) -> None:
         ir = compile_source(CRUD_SOURCE)
         state = {"Task": [{"id": "legacy-1", "title": "legacy", "done": False}]}
@@ -1031,7 +1208,9 @@ action ChangeEmail:
 
             with SQLiteStateRepository(database) as repository:
                 before = repository.inspect(ir["module"])
-                repository.save(ir, before["state"])
+                mode = repository.save_changes(
+                    ir, before["state"], before["state"], set()
+                )
                 after = repository.inspect(ir["module"])
                 relation_count = repository.connection.execute(
                     "SELECT COUNT(*) FROM intentir_relations WHERE module = ?",
@@ -1039,6 +1218,7 @@ action ChangeEmail:
                 ).fetchone()[0]
 
         self.assertEqual(before["storageFormat"], "json-v1")
+        self.assertEqual(mode, "replace")
         self.assertEqual(after["storageFormat"], RELATIONAL_STORAGE_FORMAT)
         self.assertEqual(after["state"], state)
         self.assertEqual(relation_count, 1)
@@ -1125,6 +1305,20 @@ action ChangeEmail:
             loaded,
             {"Item": [{"id": "item-1", "name": "milk", "active": True}]},
         )
+
+    def test_adding_reference_requires_manual_migration(self) -> None:
+        without_reference = compile_source(
+            RELATION_SOURCE.replace(" required ref Project.id", " required")
+        )
+        with_reference = compile_source(RELATION_SOURCE)
+
+        added = plan_migration(storage_schema(without_reference), with_reference)
+        removed = plan_migration(storage_schema(with_reference), without_reference)
+
+        self.assertEqual(added["summary"]["manual"], 1)
+        self.assertFalse(added["applicable"])
+        self.assertEqual(removed["summary"]["safe"], 1)
+        self.assertTrue(removed["applicable"])
 
     def test_migration_rejects_required_field_without_default(self) -> None:
         source_ir = compile_source(MIGRATION_BASE_SOURCE)
@@ -1342,6 +1536,35 @@ action ChangeEmail:
         results = json.loads(completed.stdout)
         self.assertEqual(len(results), 2)
         self.assertTrue(all(result["ok"] for result in results))
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_generated_typescript_enforces_entity_references(self) -> None:
+        output = generate_typescript(compile_source(RELATION_SOURCE))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "relations.ts"
+            target.write_text(output, encoding="utf-8")
+            script = (
+                f"import({json.dumps(target.as_uri())}).then(m => {{"
+                "let s=m.createStore();"
+                "let orphanRejected=false;"
+                "try{m.CreateTask(s,{id:'task-1',projectId:'missing',title:'x'})}"
+                "catch{orphanRejected=true}"
+                "s=m.CreateProject(s,{id:'project-1',name:'Ailex'});"
+                "s=m.CreateTask(s,{id:'task-1',projectId:'project-1',title:'x'});"
+                "let deleteRejected=false;"
+                "try{m.DeleteProject(s,{id:'project-1'})}"
+                "catch{deleteRejected=true}"
+                "if(!orphanRejected||!deleteRejected) process.exit(1)"
+                "})"
+            )
+            completed = subprocess.run(
+                ["node", "--input-type=module", "-e", script],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_validation_report_includes_static_and_runtime_results(self) -> None:
         report = generate_validation_report(SOURCE, "todo.intent")

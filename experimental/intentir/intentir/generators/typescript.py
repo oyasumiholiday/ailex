@@ -260,6 +260,10 @@ def render_action(
             )
         )
 
+    lines.extend(
+        f"  {line}" for line in render_relation_guards(entities_by_name)
+    )
+
     for ensure in action["ensures"]:
         expression = render_condition(ensure["condition"], functions_by_name)
         lines.extend(
@@ -271,6 +275,35 @@ def render_action(
         )
 
     lines.extend(["  return nextStore;", "}"])
+    return lines
+
+
+def render_relation_guards(
+    entities_by_name: dict[str, dict[str, Any]],
+) -> list[str]:
+    lines: list[str] = []
+    for entity_name, entity in sorted(entities_by_name.items()):
+        collection = camel_plural(entity_name)
+        for field in sorted(entity["fields"], key=lambda item: item["name"]):
+            reference = field.get("references")
+            if reference is None:
+                continue
+            field_name = field["name"]
+            target_collection = camel_plural(reference["entity"])
+            target_field = reference["field"]
+            condition = (
+                f"nextStore.{collection}.some((item) => "
+                f"item.{field_name} !== undefined && "
+                f"!nextStore.{target_collection}.some((target) => "
+                f"target.{target_field} === item.{field_name}))"
+            )
+            lines.extend(
+                [
+                    f"if ({condition}) {{",
+                    f"  throw new Error({ts_literal('reference constraint failed: ' + entity_name + '.' + field_name + ' -> ' + reference['entity'] + '.' + target_field)});",
+                    "}",
+                ]
+            )
     return lines
 
 

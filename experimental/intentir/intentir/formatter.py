@@ -74,6 +74,10 @@ def format_field(field: FieldSpec) -> str:
         modifiers.append("key")
     elif field.unique:
         modifiers.append("unique")
+    if field.reference_entity and field.reference_field:
+        modifiers.extend(
+            ["ref", f"{field.reference_entity}.{field.reference_field}"]
+        )
     if field.default is not None:
         modifiers.extend(["default", field.default])
     suffix = f" {' '.join(modifiers)}" if modifiers else ""

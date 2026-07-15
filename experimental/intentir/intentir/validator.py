@@ -86,7 +86,8 @@ def collect_diagnostics(program: ProgramSpec) -> list[Diagnostic]:
     validate_test_symbols(program.tests, diagnostics)
 
     for entity in program.entities:
-        validate_entity(entity, diagnostics)
+        validate_entity(entity, entities, diagnostics)
+    validate_relation_cycles(program.entities, entities, diagnostics)
     validate_value_symbol_collisions(functions, actions, diagnostics)
     for function in program.functions:
         validate_function(function, functions, diagnostics)
@@ -140,6 +141,17 @@ def validate_function(
                     input_path,
                     (),
                     "Move identity constraints to an entity field.",
+                )
+            )
+        if input_spec.reference_entity is not None:
+            diagnostics.append(
+                make_diagnostic(
+                    "function_input_reference_not_allowed",
+                    f"function input {function.name}.{input_spec.name} cannot define a reference",
+                    f"Function Input `{function.name}.{input_spec.name}` に `ref` は指定できません。",
+                    input_path,
+                    (),
+                    "Use a scalar input and define the reference on an entity field.",
                 )
             )
         if not input_spec.required and input_spec.default is None:
@@ -587,7 +599,11 @@ def add_pure_type_error(
     )
 
 
-def validate_entity(entity: EntitySpec, diagnostics: list[Diagnostic]) -> None:
+def validate_entity(
+    entity: EntitySpec,
+    entities: dict[str, EntitySpec],
+    diagnostics: list[Diagnostic],
+) -> None:
     field_names: set[str] = set()
     key_fields: list[str] = []
     for field in entity.fields:
@@ -606,6 +622,7 @@ def validate_entity(entity: EntitySpec, diagnostics: list[Diagnostic]) -> None:
         field_names.add(field.name)
         validate_type(field.type_name, path, diagnostics)
         validate_default(field, path, diagnostics)
+        validate_relation_field(entity, field, entities, path, diagnostics)
         if field.key:
             key_fields.append(field.name)
             if not field.required:
@@ -643,6 +660,135 @@ def validate_entity(entity: EntitySpec, diagnostics: list[Diagnostic]) -> None:
         )
 
 
+def validate_relation_field(
+    entity: EntitySpec,
+    field: FieldSpec,
+    entities: dict[str, EntitySpec],
+    path: str,
+    diagnostics: list[Diagnostic],
+) -> None:
+    target_entity_name = field.reference_entity
+    target_field_name = field.reference_field
+    if target_entity_name is None and target_field_name is None:
+        return
+    if target_entity_name is None or target_field_name is None:
+        diagnostics.append(
+            make_diagnostic(
+                "incomplete_reference",
+                f"field {entity.name}.{field.name} has an incomplete reference",
+                f"Field `{entity.name}.{field.name}` の参照先が不完全です。",
+                f"{path}/references",
+                entities,
+                "Specify the reference as `ref Entity.field`.",
+            )
+        )
+        return
+
+    target_entity = entities.get(target_entity_name)
+    if target_entity is None:
+        diagnostics.append(
+            make_diagnostic(
+                "unknown_reference_entity",
+                f"field {entity.name}.{field.name} references unknown entity {target_entity_name}",
+                f"Field `{entity.name}.{field.name}` が未定義のEntity `{target_entity_name}` を参照しています。",
+                f"{path}/references/entity",
+                entities,
+                "Choose a target entity from scope.",
+            )
+        )
+        return
+
+    target_fields = {candidate.name: candidate for candidate in target_entity.fields}
+    target_field = target_fields.get(target_field_name)
+    if target_field is None:
+        diagnostics.append(
+            make_diagnostic(
+                "unknown_reference_field",
+                f"field {entity.name}.{field.name} references unknown field {target_entity_name}.{target_field_name}",
+                f"Field `{entity.name}.{field.name}` が未定義のField `{target_entity_name}.{target_field_name}` を参照しています。",
+                f"{path}/references/field",
+                target_fields,
+                "Choose a target field from scope.",
+            )
+        )
+        return
+
+    if not (target_field.key or target_field.unique):
+        diagnostics.append(
+            make_diagnostic(
+                "non_unique_reference_target",
+                f"field {entity.name}.{field.name} references non-unique field {target_entity_name}.{target_field_name}",
+                f"Field `{entity.name}.{field.name}` の参照先 `{target_entity_name}.{target_field_name}` は一意ではありません。",
+                f"{path}/references/field",
+                (
+                    candidate.name
+                    for candidate in target_entity.fields
+                    if candidate.key or candidate.unique
+                ),
+                "Reference a key or unique field.",
+            )
+        )
+
+    if not compatible_types(field.type_name, target_field.type_name):
+        diagnostics.append(
+            make_diagnostic(
+                "reference_type_mismatch",
+                f"field {entity.name}.{field.name} is {field.type_name} but references {target_entity_name}.{target_field_name} of type {target_field.type_name}",
+                f"Field `{entity.name}.{field.name}` の型 `{field.type_name}` は参照先 `{target_entity_name}.{target_field_name}` の型 `{target_field.type_name}` と一致しません。",
+                f"{path}/references",
+                (target_field.type_name,),
+                "Use a field type compatible with the reference target.",
+            )
+        )
+
+
+def validate_relation_cycles(
+    entity_specs: list[EntitySpec],
+    entities: dict[str, EntitySpec],
+    diagnostics: list[Diagnostic],
+) -> None:
+    graph = {
+        entity.name: {
+            field.reference_entity
+            for field in entity.fields
+            if field.reference_entity in entities
+        }
+        for entity in entity_specs
+    }
+    reported: set[tuple[str, ...]] = set()
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visiting:
+            start = visiting.index(name)
+            cycle = visiting[start:] + [name]
+            key = tuple(sorted(set(cycle)))
+            if key not in reported:
+                reported.add(key)
+                diagnostics.append(
+                    make_diagnostic(
+                        "relation_cycle",
+                        f"entity relation cycle: {' -> '.join(cycle)}",
+                        f"Entity参照の循環は未対応です: `{' -> '.join(cycle)}`",
+                        f"/entities/{name}/fields",
+                        entities,
+                        "Remove the cycle; cyclic persistence requires deferred creation semantics.",
+                    )
+                )
+            return
+        if name in visited:
+            return
+        visiting.append(name)
+        for target in sorted(graph.get(name, set())):
+            visit(target)
+        visiting.pop()
+        visited.add(name)
+
+    for entity_name in sorted(graph):
+        visit(entity_name)
+
+
 def validate_action(
     action: ActionSpec,
     entities: dict[str, EntitySpec],
@@ -664,6 +810,17 @@ def validate_action(
                     input_path,
                     (),
                     "Move identity constraints to an entity field.",
+                )
+            )
+        if input_spec.reference_entity is not None:
+            diagnostics.append(
+                make_diagnostic(
+                    "input_reference_not_allowed",
+                    f"action input {action.name}.{input_spec.name} cannot define a reference",
+                    f"Action Input `{action.name}.{input_spec.name}` に `ref` は指定できません。",
+                    input_path,
+                    (),
+                    "Use a scalar input and define the reference on an entity field.",
                 )
             )
 

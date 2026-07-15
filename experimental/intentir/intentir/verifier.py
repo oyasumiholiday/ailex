@@ -478,6 +478,18 @@ def execute_action(
             if effect["op"] == "insert":
                 created[entity_name] = result["record"]
 
+    conflict = reference_conflict(entities, working)
+    if conflict is not None:
+        errors.append(
+            verification_error(
+                "reference_constraint_violation",
+                f"{conflict['entity']}.{conflict['field']} value {conflict['value']!r} does not reference an existing {conflict['targetEntity']}.{conflict['targetField']}",
+                f"Field `{conflict['entity']}.{conflict['field']}` の値 `{conflict['value']}` に対応する参照先 `{conflict['targetEntity']}.{conflict['targetField']}` が存在しません。",
+                action["id"],
+            )
+        )
+        return None
+
     for ensure in action["ensures"]:
         try:
             ok = evaluate_condition(
@@ -676,7 +688,46 @@ def create_store(
                 )
             normalized.append(record)
         store[entity_name] = normalized
+    conflict = reference_conflict(entities, store)
+    if conflict is not None:
+        raise ValueError(
+            f"state.{conflict['entity']}.{conflict['field']} value "
+            f"{conflict['value']!r} does not reference an existing "
+            f"{conflict['targetEntity']}.{conflict['targetField']}"
+        )
     return store
+
+
+def reference_conflict(
+    entities: dict[str, dict[str, Any]],
+    store: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    for entity_name, entity in sorted(entities.items()):
+        for field in sorted(entity["fields"], key=lambda item: item["name"]):
+            reference = field.get("references")
+            if reference is None:
+                continue
+            field_name = field["name"]
+            target_entity = reference["entity"]
+            target_field = reference["field"]
+            target_values = {
+                record[target_field]
+                for record in store[target_entity]
+                if target_field in record
+            }
+            for record in store[entity_name]:
+                if field_name not in record:
+                    continue
+                value = record[field_name]
+                if value not in target_values:
+                    return {
+                        "entity": entity_name,
+                        "field": field_name,
+                        "targetEntity": target_entity,
+                        "targetField": target_field,
+                        "value": value,
+                    }
+    return None
 
 
 def unique_conflict(

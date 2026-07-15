@@ -4,9 +4,9 @@ IntentIR is an executable, machine-oriented semantic IR and a compact surface la
 
 The project complements an AI-friendly language such as [Ailex](https://github.com/oyasumiholiday/ailex): concise source is used for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
-Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), and [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md).
+Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), and [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md).
 
-IntentIR v0.10 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), content-addressed Module/import linking, typed pure functions usable from Action contracts and update values, key and unique constraints, relational SQLite storage, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
+IntentIR v0.11 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), content-addressed Module/import linking, typed pure functions, checked Entity references, incremental relational SQLite writes, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
 
 ## Example
 
@@ -98,6 +98,19 @@ action CreateTask:
 
 Imported symbols are currently public and share one flat linked namespace. Import cycles, duplicate Module names, missing files, absolute imports, and duplicate definitions are rejected. The three-file sample starts at [examples/modules/app.intent](examples/modules/app.intent).
 
+Entity fields can reference a key or unique field on another Entity:
+
+```intentir
+entity Project:
+  id: UUID required key
+
+entity Task:
+  id: UUID required key
+  projectId: UUID required ref Project.id
+```
+
+The compiler checks target existence, uniqueness, type compatibility, and relation cycles. Python, generated TypeScript, and SQLite enforce the same reference integrity at runtime. The complete sample is [examples/relations.intent](examples/relations.intent).
+
 ## Commands
 
 ```sh
@@ -109,6 +122,7 @@ python3 -m intentir test examples/todo_crud.intent
 python3 -m intentir test examples/functions.intent
 python3 -m intentir test examples/function_actions.intent
 python3 -m intentir test examples/modules/app.intent
+python3 -m intentir test examples/relations.intent
 
 # Evaluate a pure function
 python3 -m intentir call examples/functions.intent ClampDouble \
@@ -154,7 +168,7 @@ python3 -m intentir examples/todo.intent --emit verify
 python3 -m intentir examples/todo.intent --emit typescript
 ```
 
-## v0.10 capabilities
+## v0.11 capabilities
 
 - Content-addressed entity, action, test, edge, effect, and obligation nodes
 - Canonical JSON and a module-level SHA-256 semantic hash
@@ -171,6 +185,8 @@ python3 -m intentir examples/todo.intent --emit typescript
 - Pure function calls and typed expressions in Action requirements, selectors, update values, and postconditions
 - Action-to-Function `calls` edges in the content-addressed dependency graph
 - Entity identity with one `key` field and additional `unique` fields
+- Entity references declared with `ref Entity.field` and represented by `references` graph edges
+- Static target, uniqueness, type, and cycle validation for Entity references
 - Requirements: non-empty input and equality
 - Effects: `insert`, `update`, and `delete`; mutation selectors must be key or unique
 - Repository capabilities inferred per action from its entity effects and operations
@@ -178,22 +194,26 @@ python3 -m intentir examples/todo.intent --emit typescript
 - Multi-step scenario tests sharing one in-memory store
 - Existence, non-existence, filtered existence, and entity-count expectations
 - Static reference, binding, field, and type validation with stable diagnostic codes
-- Transactional Python execution with JSON and SQLite state validation
+- Transactional Python execution with JSON, uniqueness, and reference-integrity validation
 - SQLite transactions, schema fingerprints, and concurrent-writer locking
 - Deterministic Entity-to-table and Field-to-column SQLite projection
-- SQLite type checks, defaults, `NOT NULL`, and `UNIQUE` constraints
+- SQLite type checks, defaults, `NOT NULL`, `UNIQUE`, and foreign-key constraints
+- Parent-first creation/insertion and child-first deletion ordering
+- Keyed row-level `INSERT` / `UPDATE` / `DELETE` persistence after the first save
 - Relational records as the authoritative state with v0.5/v0.6 JSON compatibility
 - Stored schema snapshots and content-addressed migration plans/operations
 - Safe default/optional field additions and empty entity additions
 - Explicit approval for destructive entity/field removal
 - Automatic rejection of type changes and required fields without migration values
-- TypeScript generation with runtime contracts, uniqueness checks, and `runIntentIRTests()`
+- TypeScript generation with runtime contracts, uniqueness/reference checks, and `runIntentIRTests()`
 - Idempotent source formatting with full-line comment preservation
 - Japanese static and runtime validation reports
 
 `update` and `delete` must select a `key` or `unique` field and still verify exactly one match at runtime. Duplicate inserts, zero matches, and multiple matches fail atomically, so an action never commits partial state. SQLite state is bound to the content hash of the entity schema; schema changes must pass through an explicit `migrate` plan instead of silently reusing incompatible data.
 
 In `relational-v1`, each Entity has a deterministic physical table and each Field has a typed column. The metadata row retains the schema snapshot and compatibility hash, while `state_json` is no longer authoritative. Existing v0.5/v0.6 JSON databases remain readable and are converted on the next successful save or migration apply.
+
+The first database write and keyless Entity changes use a full relational replacement. Later Actions that affect keyed Entities persist only changed rows. CLI results expose this decision as `storage.writeMode` (`replace` or `incremental`). Adding or changing a reference on an existing Field is classified as a manual migration because existing rows may need repair; removing a reference is safe.
 
 `migrate` is plan-only by default. `--apply` performs the state transform and target-schema validation in one SQLite transaction. Destructive operations additionally require `--allow-destructive`; changes that need per-record values remain blocked as `manual`.
 
@@ -221,8 +241,8 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The suite contains 52 tests, including Module linking and dependency-hash propagation, import diagnostics, Action-to-Function typing and atomic failure, pure-function canonicalization and Python/Node.js execution, relational projection, physical SQLite constraints, metadata tamper protection, migration table-rebuild rollback, v0.5/v0.6 database compatibility, and cross-process persistence.
+The suite contains 59 tests, including Module linking and dependency-hash propagation, Entity reference diagnostics and atomic enforcement in Python/Node.js/SQLite, incremental SQL tracing, Action-to-Function typing, relational projection, metadata tamper protection, migration rollback, v0.5/v0.6 database compatibility, and cross-process persistence.
 
 ## Current boundaries
 
-Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. SQLite stores Entity records in relational tables, but the interpreter still rewrites a complete Module State per Action rather than issuing incremental SQL. IntentIR also lacks Entity relationships, declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is Entity relations and incremental repositories, followed by explicit external capabilities and hash-guarded Patch IR for AI edits.
+Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Keyless Entity changes still use full replacement. IntentIR also lacks declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is explicit external capabilities and hash-guarded Patch IR for AI edits.

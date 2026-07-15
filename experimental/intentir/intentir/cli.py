@@ -230,13 +230,24 @@ def command_run(args: argparse.Namespace) -> None:
                 with repository.transaction():
                     state = repository.load(ir)
                     result = run_action(ir, args.action, inputs, state)
+                    write_mode = None
                     if result["ok"]:
-                        repository.save(ir, result["state"])
+                        if state is None:
+                            repository.save(ir, result["state"])
+                            write_mode = "replace"
+                        else:
+                            write_mode = repository.save_changes(
+                                ir,
+                                state,
+                                result["state"],
+                                set(result["affected"]),
+                            )
                     stored = repository.inspect(ir["module"])
             result["storage"] = {
                 "kind": "sqlite",
                 "format": stored["storageFormat"] if stored else None,
                 "path": str(args.db),
+                "writeMode": write_mode,
             }
         else:
             state = load_json_file(args.state) if args.state else None
