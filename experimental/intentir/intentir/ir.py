@@ -20,7 +20,7 @@ from intentir.pure import (
 )
 
 
-SCHEMA_VERSION = "0.11.0"
+SCHEMA_VERSION = "0.12.0"
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,36 @@ class FieldSpec:
 
 
 @dataclass(frozen=True)
+class CapabilityOperationSpec:
+    name: str
+    return_type: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "returnType": self.return_type}
+
+
+@dataclass(frozen=True)
+class CapabilitySpec:
+    name: str
+    operations: list[CapabilityOperationSpec] = field(default_factory=list)
+    defined_in: str = ""
+
+
+@dataclass(frozen=True)
+class CapabilityUseSpec:
+    capability: str
+    operation: str
+    binding: str
+
+
+@dataclass(frozen=True)
+class CapabilityValueSpec:
+    capability: str
+    operation: str
+    value: str
+
+
+@dataclass(frozen=True)
 class EntitySpec:
     name: str
     fields: list[FieldSpec] = field(default_factory=list)
@@ -79,6 +109,7 @@ class ActionSpec:
     requires: list[str] = field(default_factory=list)
     effects: list[str] = field(default_factory=list)
     ensures: list[str] = field(default_factory=list)
+    uses: list[CapabilityUseSpec] = field(default_factory=list)
     defined_in: str = ""
 
 
@@ -87,6 +118,7 @@ class TestSpec:
     name: str
     whens: list[str] = field(default_factory=list)
     expects: list[str] = field(default_factory=list)
+    givens: list[CapabilityValueSpec] = field(default_factory=list)
     defined_in: str = ""
 
     @property
@@ -108,6 +140,7 @@ class ModuleSpec:
 @dataclass(frozen=True)
 class ProgramSpec:
     module: str
+    capabilities: list[CapabilitySpec] = field(default_factory=list)
     entities: list[EntitySpec] = field(default_factory=list)
     functions: list[FunctionSpec] = field(default_factory=list)
     actions: list[ActionSpec] = field(default_factory=list)
@@ -117,13 +150,21 @@ class ProgramSpec:
 
 
 def build_ir(program: ProgramSpec) -> dict[str, Any]:
+    capability_index = {capability.name: capability for capability in program.capabilities}
     definition_nodes = [
+        *[
+            build_capability_node(capability, program.module)
+            for capability in program.capabilities
+        ],
         *[build_entity_node(entity, program.module) for entity in program.entities],
         *[
             build_function_node(function, program.module)
             for function in program.functions
         ],
-        *[build_action_node(action, program.module) for action in program.actions],
+        *[
+            build_action_node(action, capability_index, program.module)
+            for action in program.actions
+        ],
         *[build_test_node(test, program.module) for test in program.tests],
     ]
     modules = program.modules or [ModuleSpec(name=program.module)]
@@ -147,6 +188,21 @@ def build_ir(program: ProgramSpec) -> dict[str, Any]:
     }
     ir["canonicalHash"] = content_address(semantic_projection(ir))
     return ir
+
+
+def build_capability_node(
+    capability: CapabilitySpec, default_module: str
+) -> dict[str, Any]:
+    payload = {
+        "kind": "capability",
+        "name": capability.name,
+        "definedIn": capability.defined_in or default_module,
+        "operations": sorted(
+            (operation.to_dict() for operation in capability.operations),
+            key=lambda item: item["name"],
+        ),
+    }
+    return addressed_node(f"capability:{capability.name}", payload)
 
 
 def build_entity_node(entity: EntitySpec, default_module: str) -> dict[str, Any]:
@@ -198,7 +254,11 @@ def build_function_example(source: str) -> dict[str, Any]:
     return {"id": content_address(payload), "source": source, **payload}
 
 
-def build_action_node(action: ActionSpec, default_module: str) -> dict[str, Any]:
+def build_action_node(
+    action: ActionSpec,
+    capability_specs: dict[str, CapabilitySpec],
+    default_module: str,
+) -> dict[str, Any]:
     requires = [
         addressed_expression("precondition", expr, parse_requirement(expr))
         for expr in action.requires
@@ -207,11 +267,12 @@ def build_action_node(action: ActionSpec, default_module: str) -> dict[str, Any]
         addressed_expression("effect", expr, parse_effect(expr))
         for expr in action.effects
     ]
-    capabilities = build_repository_capabilities(effects)
+    repository_capabilities = build_repository_capabilities(effects)
     ensures = [
         addressed_expression("postcondition", expr, parse_ensure(expr))
         for expr in action.ensures
     ]
+    uses = [build_capability_use(use, capability_specs) for use in action.uses]
     payload = {
         "kind": "action",
         "name": action.name,
@@ -222,10 +283,28 @@ def build_action_node(action: ActionSpec, default_module: str) -> dict[str, Any]
         ),
         "requires": sorted(requires, key=lambda item: item["id"]),
         "effects": effects,
-        "capabilities": capabilities,
+        "capabilities": repository_capabilities,
+        "uses": sorted(uses, key=lambda item: item["binding"]),
         "ensures": sorted(ensures, key=lambda item: item["id"]),
     }
     return addressed_node(f"action:{action.name}", payload)
+
+
+def build_capability_use(
+    use: CapabilityUseSpec, capabilities: dict[str, CapabilitySpec]
+) -> dict[str, Any]:
+    capability = capabilities[use.capability]
+    operation = next(
+        item for item in capability.operations if item.name == use.operation
+    )
+    payload = {
+        "kind": "capability_binding",
+        "capability": use.capability,
+        "operation": use.operation,
+        "binding": use.binding,
+        "type": operation.return_type,
+    }
+    return {"id": content_address(payload), **payload}
 
 
 def build_test_node(test: TestSpec, default_module: str) -> dict[str, Any]:
@@ -234,14 +313,28 @@ def build_test_node(test: TestSpec, default_module: str) -> dict[str, Any]:
         addressed_expression("expectation", expr, parse_expectation(expr))
         for expr in test.expects
     ]
+    givens = [build_capability_value(given) for given in test.givens]
     payload = {
         "kind": "test",
         "name": test.name,
         "definedIn": test.defined_in or default_module,
         "steps": steps,
+        "givens": sorted(
+            givens, key=lambda item: (item["capability"], item["operation"])
+        ),
         "expects": sorted(expects, key=lambda item: item["id"]),
     }
     return addressed_node(f"test:{slug(test.name)}", payload)
+
+
+def build_capability_value(given: CapabilityValueSpec) -> dict[str, Any]:
+    payload = {
+        "kind": "capability_stub",
+        "capability": given.capability,
+        "operation": given.operation,
+        "value": literal_value(parse_literal(given.value)),
+    }
+    return {"id": content_address(payload), **payload}
 
 
 def addressed_node(symbol: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -356,6 +449,14 @@ def build_edges(nodes: list[dict[str, Any]], symbols: dict[str, str]) -> list[di
                 target = f"function:{function_name}"
                 symbolic_edges.append((node["symbol"], target, "calls"))
         elif node["kind"] == "action":
+            for use in node["uses"]:
+                symbolic_edges.append(
+                    (
+                        node["symbol"],
+                        f"capability:{use['capability']}",
+                        "uses",
+                    )
+                )
             for requirement in node["requires"]:
                 for function_name in function_references(requirement["condition"]):
                     symbolic_edges.append(
@@ -374,6 +475,14 @@ def build_edges(nodes: list[dict[str, Any]], symbols: dict[str, str]) -> list[di
                         (node["symbol"], f"function:{function_name}", "calls")
                     )
         elif node["kind"] == "test":
+            for given in node["givens"]:
+                symbolic_edges.append(
+                    (
+                        node["symbol"],
+                        f"capability:{given['capability']}",
+                        "stubs",
+                    )
+                )
             for step in node["steps"]:
                 symbolic_edges.append(
                     (node["symbol"], f"action:{step['action']}", "exercises")

@@ -110,6 +110,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="{}",
         help="JSON object or @path/to/input.json",
     )
+    run.add_argument(
+        "--capabilities",
+        default="{}",
+        help="JSON object of Capability.operation values or @path/to/file.json",
+    )
     state_source = run.add_mutually_exclusive_group()
     state_source.add_argument("--state", type=Path, help="JSON state file")
     state_source.add_argument("--db", type=Path, help="persistent SQLite database")
@@ -223,13 +228,20 @@ def command_run(args: argparse.Namespace) -> None:
     ir = compile_path(args.source)
     try:
         inputs = load_json_argument(args.input)
+        capability_values = load_json_argument(args.capabilities)
         if args.db:
             if args.write_state:
                 raise ValueError("--write-state cannot be combined with --db")
             with SQLiteStateRepository(args.db) as repository:
                 with repository.transaction():
                     state = repository.load(ir)
-                    result = run_action(ir, args.action, inputs, state)
+                    result = run_action(
+                        ir,
+                        args.action,
+                        inputs,
+                        state,
+                        capability_values,
+                    )
                     write_mode = None
                     if result["ok"]:
                         if state is None:
@@ -251,7 +263,13 @@ def command_run(args: argparse.Namespace) -> None:
             }
         else:
             state = load_json_file(args.state) if args.state else None
-            result = run_action(ir, args.action, inputs, state)
+            result = run_action(
+                ir,
+                args.action,
+                inputs,
+                state,
+                capability_values,
+            )
     except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(1) from error

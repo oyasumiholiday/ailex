@@ -10,6 +10,7 @@ from intentir.verifier import verify_ir
 
 CHECK_ITEMS = [
     "Module/importの相対解決、循環、同名衝突、依存Hash",
+    "Capability Operation、Action Binding、Test Stubの参照先と型",
     "重複定義、シンボル衝突、組み込み型、デフォルト値",
     "Requirement / Ensure の参照先と型の整合性",
     "純粋FunctionのInput、Return、式、呼出し、循環依存、Example",
@@ -54,6 +55,14 @@ HINTS_JA = {
     "non_unique_reference_target": "KeyまたはUnique Fieldを参照してください。",
     "reference_type_mismatch": "参照元と参照先Fieldの型を一致させてください。",
     "relation_cycle": "循環を取り除き、親から子への非循環参照にしてください。",
+    "empty_capability": "少なくとも1つのOperationを追加してください。",
+    "duplicate_capability_operation": "Operation名を一意にしてください。",
+    "unknown_capability": "Scope内のCapabilityを使用してください。",
+    "unknown_capability_operation": "CapabilityのScope内にあるOperationを使用してください。",
+    "capability_binding_collision": "Inputと重複しないBinding名へ変更してください。",
+    "duplicate_capability_use": "同じCapability Operationの使用を1つにまとめてください。",
+    "missing_test_capability": "Testへ対応する`given Capability.operation = value`を追加してください。",
+    "invalid_capability_stub": "OperationのReturn型と互換性のあるScalar値を指定してください。",
 }
 
 
@@ -109,6 +118,7 @@ def generate_program_validation_report(
             "",
             f"- Module: {len(program.modules) or 1}",
             f"- Import: {sum(len(module.imports) for module in program.modules)}",
+            f"- Capability: {len(program.capabilities)}",
             f"- Entity: {len(program.entities)}",
             f"- Function: {len(program.functions)}",
             f"- Action: {len(program.actions)}",

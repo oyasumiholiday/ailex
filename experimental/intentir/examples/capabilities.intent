@@ -1,0 +1,27 @@
+module AuditedEvents
+
+capability Clock:
+  operation now returns Text
+
+entity Event:
+  id: UUID required key
+  title: Text required
+  createdAt: Text required
+
+action CreateEvent:
+  input:
+    id: UUID required
+    title: Text required
+  uses:
+    Clock.now as createdAt
+  requires:
+    title is not empty
+  effects:
+    insert Event
+  ensures:
+    created Event.createdAt equals createdAt
+
+test "injects deterministic clock":
+  given Clock.now = "2026-07-16T09:00:00+09:00"
+  when CreateEvent(id="event-1", title="ship v0.12")
+  expect Event exists with createdAt "2026-07-16T09:00:00+09:00"

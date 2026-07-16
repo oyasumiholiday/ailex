@@ -6,6 +6,10 @@ from dataclasses import replace
 
 from intentir.ir import (
     ActionSpec,
+    CapabilityOperationSpec,
+    CapabilitySpec,
+    CapabilityUseSpec,
+    CapabilityValueSpec,
     EntitySpec,
     FieldSpec,
     FunctionSpec,
@@ -23,6 +27,18 @@ FIELD_RE = re.compile(
     r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<type>[A-Za-z_][A-Za-z0-9_]*)(?P<rest>.*)$"
 )
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+CAPABILITY_OPERATION_RE = re.compile(
+    r"^operation\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s+returns\s+(?P<type>[A-Za-z_][A-Za-z0-9_]*)$"
+)
+CAPABILITY_USE_RE = re.compile(
+    r"^(?P<capability>[A-Za-z_][A-Za-z0-9_]*)\."
+    r"(?P<operation>[A-Za-z_][A-Za-z0-9_]*)\s+as\s+"
+    r"(?P<binding>[A-Za-z_][A-Za-z0-9_]*)$"
+)
+CAPABILITY_VALUE_RE = re.compile(
+    r"^(?P<capability>[A-Za-z_][A-Za-z0-9_]*)\."
+    r"(?P<operation>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.+)$"
+)
 
 
 def parse_source(source: str) -> ProgramSpec:
@@ -39,6 +55,7 @@ def parse_source(source: str) -> ProgramSpec:
     if not IDENTIFIER_RE.fullmatch(module):
         raise ParseError(f"invalid module name on line {module_line.number}: {module}")
 
+    capabilities: list[CapabilitySpec] = []
     entities: list[EntitySpec] = []
     functions: list[FunctionSpec] = []
     actions: list[ActionSpec] = []
@@ -64,6 +81,10 @@ def parse_source(source: str) -> ProgramSpec:
                 )
             imports.append(import_spec)
             index += 1
+        elif line.text.startswith("capability ") and line.text.endswith(":"):
+            seen_definition = True
+            capability, index = parse_capability(lines, index)
+            capabilities.append(capability)
         elif line.text.startswith("entity ") and line.text.endswith(":"):
             seen_definition = True
             entity, index = parse_entity(lines, index)
@@ -85,6 +106,9 @@ def parse_source(source: str) -> ProgramSpec:
 
     return ProgramSpec(
         module=module,
+        capabilities=[
+            replace(capability, defined_in=module) for capability in capabilities
+        ],
         entities=[replace(entity, defined_in=module) for entity in entities],
         functions=[replace(function, defined_in=module) for function in functions],
         actions=[replace(action, defined_in=module) for action in actions],
@@ -104,6 +128,32 @@ def parse_import(line: "Line") -> ImportSpec:
     if not isinstance(path, str) or not path:
         raise ParseError(f"import path is required on line {line.number}")
     return ImportSpec(path=path)
+
+
+def parse_capability(
+    lines: list["Line"], index: int
+) -> tuple[CapabilitySpec, int]:
+    name = identifier_block_name(lines[index], "capability")
+    operations: list[CapabilityOperationSpec] = []
+    index += 1
+    while index < len(lines) and lines[index].indent > 0:
+        line = lines[index]
+        if line.indent != 2:
+            raise ParseError(
+                f"capability operations must be indented by two spaces on line {line.number}"
+            )
+        match = CAPABILITY_OPERATION_RE.fullmatch(line.text)
+        if match is None:
+            raise ParseError(
+                f"invalid capability operation on line {line.number}: {line.text}"
+            )
+        operations.append(
+            CapabilityOperationSpec(
+                name=match.group("name"), return_type=match.group("type")
+            )
+        )
+        index += 1
+    return CapabilitySpec(name=name, operations=operations), index
 
 
 def parse_entity(lines: list["Line"], index: int) -> tuple[EntitySpec, int]:
@@ -183,6 +233,7 @@ def parse_action(lines: list["Line"], index: int) -> tuple[ActionSpec, int]:
     requires: list[str] = []
     effects: list[str] = []
     ensures: list[str] = []
+    uses: list[CapabilityUseSpec] = []
 
     index += 1
     while index < len(lines) and lines[index].indent > 0:
@@ -202,6 +253,8 @@ def parse_action(lines: list["Line"], index: int) -> tuple[ActionSpec, int]:
 
         if section_name == "input":
             inputs.extend(parse_field(value, section.number) for value in values)
+        elif section_name == "uses":
+            uses.extend(parse_capability_use(value, section.number) for value in values)
         elif section_name == "requires":
             requires.extend(values)
         elif section_name == "effects":
@@ -211,7 +264,27 @@ def parse_action(lines: list["Line"], index: int) -> tuple[ActionSpec, int]:
         else:
             raise ParseError(f"unknown action section on line {section.number}: {section_name}")
 
-    return ActionSpec(name=name, inputs=inputs, requires=requires, effects=effects, ensures=ensures), index
+    return ActionSpec(
+        name=name,
+        inputs=inputs,
+        requires=requires,
+        effects=effects,
+        ensures=ensures,
+        uses=uses,
+    ), index
+
+
+def parse_capability_use(source: str, line_number: int) -> CapabilityUseSpec:
+    match = CAPABILITY_USE_RE.fullmatch(source)
+    if match is None:
+        raise ParseError(
+            f"invalid capability use on line {line_number}: {source}"
+        )
+    return CapabilityUseSpec(
+        capability=match.group("capability"),
+        operation=match.group("operation"),
+        binding=match.group("binding"),
+    )
 
 
 def parse_test(lines: list["Line"], index: int) -> tuple[TestSpec, int]:
@@ -227,13 +300,20 @@ def parse_test(lines: list["Line"], index: int) -> tuple[TestSpec, int]:
         name = raw_name
     whens: list[str] = []
     expects: list[str] = []
+    givens: list[CapabilityValueSpec] = []
 
     index += 1
     while index < len(lines) and lines[index].indent > 0:
         line = lines[index]
         if line.indent != 2:
             raise ParseError(f"test entries must be indented by two spaces on line {line.number}")
-        if line.text.startswith("when "):
+        if line.text.startswith("given "):
+            givens.append(
+                parse_capability_value(
+                    line.text.removeprefix("given ").strip(), line.number
+                )
+            )
+        elif line.text.startswith("when "):
             whens.append(line.text.removeprefix("when ").strip())
         elif line.text.startswith("expect "):
             expects.append(line.text.removeprefix("expect ").strip())
@@ -243,7 +323,22 @@ def parse_test(lines: list["Line"], index: int) -> tuple[TestSpec, int]:
 
     if not whens:
         raise ParseError(f"test {name!r} is missing a when entry")
-    return TestSpec(name=name, whens=whens, expects=expects), index
+    return TestSpec(name=name, whens=whens, expects=expects, givens=givens), index
+
+
+def parse_capability_value(
+    source: str, line_number: int
+) -> CapabilityValueSpec:
+    match = CAPABILITY_VALUE_RE.fullmatch(source)
+    if match is None:
+        raise ParseError(
+            f"invalid capability value on line {line_number}: {source}"
+        )
+    return CapabilityValueSpec(
+        capability=match.group("capability"),
+        operation=match.group("operation"),
+        value=match.group("value").strip(),
+    )
 
 
 def parse_field(text: str, line_number: int) -> FieldSpec:

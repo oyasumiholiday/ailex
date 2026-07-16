@@ -4,9 +4,9 @@ IntentIR is an executable, machine-oriented semantic IR and a compact surface la
 
 The project complements an AI-friendly language such as [Ailex](https://github.com/oyasumiholiday/ailex): concise source is used for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
-Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), and [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md).
+Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), and [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md).
 
-IntentIR v0.11 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), content-addressed Module/import linking, typed pure functions, checked Entity references, incremental relational SQLite writes, and content-addressed migration plans. It is still a domain language rather than a general-purpose replacement for Go or Python.
+IntentIR v0.12 has a Go/Python-like development loop (`check`, `test`, `call`, `run`, `migrate`, `build`, `fmt`), content-addressed Module/import linking, typed pure functions, checked Entity references, incremental relational SQLite writes, and explicit typed Capabilities with deterministic test injection. It is still a domain language rather than a general-purpose replacement for Go or Python.
 
 ## Example
 
@@ -111,6 +111,34 @@ entity Task:
 
 The compiler checks target existence, uniqueness, type compatibility, and relation cycles. Python, generated TypeScript, and SQLite enforce the same reference integrity at runtime. The complete sample is [examples/relations.intent](examples/relations.intent).
 
+External environment values are declared as typed Capabilities instead of hidden global I/O:
+
+```intentir
+capability Clock:
+  operation now returns Text
+
+entity Event:
+  id: UUID required key
+  title: Text required
+  createdAt: Text required
+
+action CreateEvent:
+  input:
+    id: UUID required
+    title: Text required
+  uses:
+    Clock.now as createdAt
+  effects:
+    insert Event
+
+test "fixed clock":
+  given Clock.now = "2026-07-16T09:00:00+09:00"
+  when CreateEvent(id="event-1", title="ship")
+  expect Event exists with createdAt "2026-07-16T09:00:00+09:00"
+```
+
+Capability bindings join the Action's typed value scope but remain separate from caller inputs. Python and TypeScript validate injected values before effects, while tests replace the environment with content-addressed deterministic stubs. The complete sample is [examples/capabilities.intent](examples/capabilities.intent).
+
 ## Commands
 
 ```sh
@@ -123,6 +151,7 @@ python3 -m intentir test examples/functions.intent
 python3 -m intentir test examples/function_actions.intent
 python3 -m intentir test examples/modules/app.intent
 python3 -m intentir test examples/relations.intent
+python3 -m intentir test examples/capabilities.intent
 
 # Evaluate a pure function
 python3 -m intentir call examples/functions.intent ClampDouble \
@@ -136,6 +165,11 @@ python3 -m intentir run examples/todo_crud.intent CreateTask \
 python3 -m intentir run examples/todo_crud.intent CompleteTask \
   --input '{"id":"task-1"}' \
   --db /tmp/todo.db
+
+# Inject an explicit environment value
+python3 -m intentir run examples/capabilities.intent CreateEvent \
+  --input '{"id":"event-1","title":"ship"}' \
+  --capabilities '{"Clock.now":"2026-07-16T09:00:00+09:00"}'
 
 # JSON state files remain available for portable one-shot execution
 python3 -m intentir run examples/todo_crud.intent CreateTask \
@@ -168,7 +202,7 @@ python3 -m intentir examples/todo.intent --emit verify
 python3 -m intentir examples/todo.intent --emit typescript
 ```
 
-## v0.11 capabilities
+## v0.12 capabilities
 
 - Content-addressed entity, action, test, edge, effect, and obligation nodes
 - Canonical JSON and a module-level SHA-256 semantic hash
@@ -176,6 +210,11 @@ python3 -m intentir examples/todo.intent --emit typescript
 - Content-addressed Module nodes and `imports` / `defines` dependency edges
 - Import-cycle, duplicate-Module, duplicate-symbol, missing-file, and absolute-path rejection
 - Dependency hashes propagated into the root Module ID
+- Content-addressed Capability nodes with typed zero-argument Operations
+- Action `uses` and Test `stubs` dependency edges
+- Capability bindings available to Action requirements, effects, and postconditions
+- Deterministic Test stubs through `given Capability.operation = literal`
+- Python/CLI injection with missing-value and runtime-type diagnostics
 - Scalar types: `Boolean`, `Integer`, `Number`, `Text`, `UUID`
 - Typed pure functions with required/default inputs and scalar return values
 - Structured arithmetic, comparison, boolean, unary, call, and conditional expressions
@@ -205,7 +244,8 @@ python3 -m intentir examples/todo.intent --emit typescript
 - Safe default/optional field additions and empty entity additions
 - Explicit approval for destructive entity/field removal
 - Automatic rejection of type changes and required fields without migration values
-- TypeScript generation with runtime contracts, uniqueness/reference checks, and `runIntentIRTests()`
+- TypeScript Capability Provider types and deterministic generated stubs
+- TypeScript generation with runtime contracts, capability/uniqueness/reference checks, and `runIntentIRTests()`
 - Idempotent source formatting with full-line comment preservation
 - Japanese static and runtime validation reports
 
@@ -241,8 +281,8 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The suite contains 59 tests, including Module linking and dependency-hash propagation, Entity reference diagnostics and atomic enforcement in Python/Node.js/SQLite, incremental SQL tracing, Action-to-Function typing, relational projection, metadata tamper protection, migration rollback, v0.5/v0.6 database compatibility, and cross-process persistence.
+The suite contains 66 tests, including explicit Capability typing/injection across imports, Python, CLI, and Node.js; Module linking and dependency-hash propagation; Entity reference enforcement in Python/Node.js/SQLite; incremental SQL tracing; relational projection; migration rollback; v0.5/v0.6 database compatibility; and cross-process persistence.
 
 ## Current boundaries
 
-Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Keyless Entity changes still use full replacement. IntentIR also lacks declared HTTP/File capabilities, async I/O, and a debugger. The next practical step is explicit external capabilities and hash-guarded Patch IR for AI edits.
+Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Capability Operations currently accept no arguments and are injected as precomputed scalar values, so HTTP/File calls, async I/O, retries, and secret policies are not implemented. Keyless Entity changes still use full replacement. The next practical step is hash-guarded Patch IR for AI edits, followed by argument-bearing Capability calls.

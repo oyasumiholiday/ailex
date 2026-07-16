@@ -4,6 +4,7 @@ import json
 
 from intentir.ir import (
     ActionSpec,
+    CapabilitySpec,
     EntitySpec,
     FieldSpec,
     FunctionSpec,
@@ -27,11 +28,23 @@ def format_program(program: ProgramSpec) -> str:
                 for import_spec in program.imports
             )
         )
+    blocks.extend(
+        format_capability(capability) for capability in program.capabilities
+    )
     blocks.extend(format_entity(entity) for entity in program.entities)
     blocks.extend(format_function(function) for function in program.functions)
     blocks.extend(format_action(action) for action in program.actions)
     blocks.extend(format_test(test) for test in program.tests)
     return "\n\n".join(blocks) + "\n"
+
+
+def format_capability(capability: CapabilitySpec) -> str:
+    lines = [f"capability {capability.name}:"]
+    lines.extend(
+        f"  operation {operation.name} returns {operation.return_type}"
+        for operation in capability.operations
+    )
+    return "\n".join(lines)
 
 
 def format_entity(entity: EntitySpec) -> str:
@@ -52,6 +65,14 @@ def format_function(function: FunctionSpec) -> str:
 def format_action(action: ActionSpec) -> str:
     lines = [f"action {action.name}:"]
     append_section(lines, "input", [format_field(field) for field in action.inputs])
+    append_section(
+        lines,
+        "uses",
+        [
+            f"{use.capability}.{use.operation} as {use.binding}"
+            for use in action.uses
+        ],
+    )
     append_section(lines, "requires", action.requires)
     append_section(lines, "effects", action.effects)
     append_section(lines, "ensures", action.ensures)
@@ -61,6 +82,10 @@ def format_action(action: ActionSpec) -> str:
 def format_test(test: TestSpec) -> str:
     name = json.dumps(test.name, ensure_ascii=False)
     lines = [f"test {name}:"]
+    lines.extend(
+        f"  given {given.capability}.{given.operation} = {given.value}"
+        for given in test.givens
+    )
     lines.extend(f"  when {when}" for when in test.whens)
     lines.extend(f"  expect {expect}" for expect in test.expects)
     return "\n".join(lines)

@@ -65,6 +65,9 @@ MODULE_APP_PATH = ROOT / "examples" / "modules" / "app.intent"
 RELATION_SOURCE = (ROOT / "examples" / "relations.intent").read_text(
     encoding="utf-8"
 )
+CAPABILITY_SOURCE = (ROOT / "examples" / "capabilities.intent").read_text(
+    encoding="utf-8"
+)
 
 MIGRATION_BASE_SOURCE = """
 module Inventory
@@ -76,6 +79,198 @@ entity Item:
 
 
 class CompilerTest(unittest.TestCase):
+    def test_capabilities_build_nodes_bindings_and_dependency_edges(self) -> None:
+        ir = compile_source(CAPABILITY_SOURCE)
+        capability = next(
+            node for node in ir["nodes"] if node["symbol"] == "capability:Clock"
+        )
+        action = next(
+            node for node in ir["nodes"] if node["symbol"] == "action:CreateEvent"
+        )
+        test = next(node for node in ir["nodes"] if node["kind"] == "test")
+        edges = {
+            (edge["fromSymbol"], edge["toSymbol"], edge["kind"])
+            for edge in ir["edges"]
+        }
+
+        self.assertEqual(
+            capability["operations"], [{"name": "now", "returnType": "Text"}]
+        )
+        self.assertEqual(action["uses"][0]["binding"], "createdAt")
+        self.assertEqual(action["uses"][0]["type"], "Text")
+        self.assertEqual(test["givens"][0]["value"], "2026-07-16T09:00:00+09:00")
+        self.assertIn(("action:CreateEvent", "capability:Clock", "uses"), edges)
+        self.assertIn(
+            ("test:injects-deterministic-clock", "capability:Clock", "stubs"),
+            edges,
+        )
+        formatted = format_source(CAPABILITY_SOURCE)
+        self.assertEqual(format_source(formatted), formatted)
+
+    def test_capability_validation_reports_structured_failures(self) -> None:
+        source = """
+module InvalidCapabilities
+
+capability Empty:
+
+capability Clock:
+  operation now returns Text
+  operation now returns Text
+  operation broken returns MissingType
+
+entity Event:
+  id: UUID required key
+  createdAt: Text required
+
+action Broken:
+  input:
+    id: UUID required
+    createdAt: Text required
+  uses:
+    Missing.now as missingCapability
+    Clock.missing as missingOperation
+    Clock.now as createdAt
+    Clock.now as secondClock
+  effects:
+    insert Event
+
+action Valid:
+  input:
+    id: UUID required
+  uses:
+    Clock.now as createdAt
+  effects:
+    insert Event
+
+test "missing stub":
+  when Valid(id="event-1")
+  expect Event count equals 1
+
+test "wrong stub type":
+  given Clock.now = 7
+  when Valid(id="event-2")
+  expect Event count equals 1
+"""
+
+        with self.assertRaises(ValidationError) as context:
+            compile_source(source)
+
+        codes = {item.code for item in context.exception.diagnostics}
+        self.assertTrue(
+            {
+                "empty_capability",
+                "duplicate_capability_operation",
+                "unknown_type",
+                "unknown_capability",
+                "unknown_capability_operation",
+                "capability_binding_collision",
+                "duplicate_capability_use",
+                "missing_test_capability",
+                "literal_type_mismatch",
+            }
+            <= codes
+        )
+
+    def test_capability_runtime_is_typed_and_atomic(self) -> None:
+        ir = compile_source(CAPABILITY_SOURCE)
+        inputs = {"id": "event-1", "title": "runtime"}
+
+        missing = run_action(ir, "CreateEvent", inputs)
+        wrong = run_action(
+            ir, "CreateEvent", inputs, capability_values={"Clock.now": 7}
+        )
+        success = run_action(
+            ir,
+            "CreateEvent",
+            inputs,
+            capability_values={"Clock.now": "2026-07-16T11:00:00+09:00"},
+        )
+
+        self.assertEqual(
+            missing["errors"][0]["code"], "missing_runtime_capability"
+        )
+        self.assertEqual(
+            wrong["errors"][0]["code"], "runtime_capability_type_mismatch"
+        )
+        self.assertEqual(missing["state"], {"Event": []})
+        self.assertEqual(wrong["state"], {"Event": []})
+        self.assertTrue(success["ok"])
+        self.assertEqual(
+            success["state"]["Event"][0]["createdAt"],
+            "2026-07-16T11:00:00+09:00",
+        )
+        self.assertEqual(success["capabilitiesUsed"], ["Clock.now"])
+
+    def test_capability_cli_accepts_json_values(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "intentir",
+                "run",
+                str(ROOT / "examples" / "capabilities.intent"),
+                "CreateEvent",
+                "--input",
+                '{"id":"event-cli","title":"CLI"}',
+                "--capabilities",
+                '{"Clock.now":"2026-07-16T12:00:00+09:00"}',
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["capabilitiesUsed"], ["Clock.now"])
+        self.assertEqual(
+            result["state"]["Event"][0]["createdAt"],
+            "2026-07-16T12:00:00+09:00",
+        )
+
+    def test_imported_capability_is_available_to_root_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "clock.intent").write_text(
+                "module Environment\n\ncapability Clock:\n"
+                "  operation now returns Text\n",
+                encoding="utf-8",
+            )
+            app = root / "app.intent"
+            app.write_text(
+                'module App\n\nimport "./clock.intent"\n\n'
+                "entity Event:\n  id: UUID required key\n"
+                "  createdAt: Text required\n\n"
+                "action CreateEvent:\n  input:\n    id: UUID required\n"
+                "  uses:\n    Clock.now as createdAt\n"
+                "  effects:\n    insert Event\n\n"
+                'test "imported capability":\n'
+                '  given Clock.now = "fixed"\n'
+                '  when CreateEvent(id="event-1")\n'
+                "  expect Event exists with createdAt \"fixed\"\n",
+                encoding="utf-8",
+            )
+            ir = compile_path(app)
+
+        capability = next(
+            node for node in ir["nodes"] if node["symbol"] == "capability:Clock"
+        )
+        self.assertEqual(capability["definedIn"], "Environment")
+        self.assertTrue(verify_ir(ir)["ok"])
+
+    def test_capabilities_do_not_change_storage_schema(self) -> None:
+        original = compile_source(CAPABILITY_SOURCE)
+        extended = compile_source(
+            CAPABILITY_SOURCE.replace(
+                "  operation now returns Text",
+                "  operation now returns Text\n  operation today returns Text",
+            )
+        )
+
+        self.assertEqual(storage_schema_hash(original), storage_schema_hash(extended))
+        self.assertNotEqual(original["canonicalHash"], extended["canonicalHash"])
+
     def test_entity_references_build_ir_edges_and_format_canonically(self) -> None:
         ir = compile_source(RELATION_SOURCE)
         task = next(node for node in ir["nodes"] if node["symbol"] == "entity:Task")
@@ -169,7 +364,7 @@ entity Child:
     def test_compile_source_builds_content_addressed_graph(self) -> None:
         ir = compile_source(SOURCE)
 
-        self.assertEqual(ir["schemaVersion"], "0.11.0")
+        self.assertEqual(ir["schemaVersion"], "0.12.0")
         self.assertEqual(ir["hashAlgorithm"], "sha256")
         self.assertTrue(ir["moduleId"].startswith("sha256:"))
         self.assertTrue(ir["canonicalHash"].startswith("sha256:"))
@@ -1555,6 +1750,34 @@ action ChangeEmail:
                 "try{m.DeleteProject(s,{id:'project-1'})}"
                 "catch{deleteRejected=true}"
                 "if(!orphanRejected||!deleteRejected) process.exit(1)"
+                "})"
+            )
+            completed = subprocess.run(
+                ["node", "--input-type=module", "-e", script],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_generated_typescript_injects_and_checks_capabilities(self) -> None:
+        output = generate_typescript(compile_source(CAPABILITY_SOURCE))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "capabilities.ts"
+            target.write_text(output, encoding="utf-8")
+            script = (
+                f"import({json.dumps(target.as_uri())}).then(m => {{"
+                "const tests=m.runIntentIRTests();"
+                "const initial=m.createStore();"
+                "const next=m.CreateEvent(initial,{id:'event-2',title:'node'},"
+                "{Clock:{now:()=> 'node-time'}});"
+                "let wrongTypeRejected=false;"
+                "try{m.CreateEvent(initial,{id:'event-3',title:'bad'},"
+                "{Clock:{now:()=> 7}})}catch{wrongTypeRejected=true}"
+                "if(tests.some(x=>!x.ok)||next.events[0].createdAt!=='node-time'"
+                "||!wrongTypeRejected||initial.events.length!==0) process.exit(1)"
                 "})"
             )
             completed = subprocess.run(

@@ -18,6 +18,7 @@ from intentir.expressions import (
 )
 from intentir.ir import (
     ActionSpec,
+    CapabilitySpec,
     EntitySpec,
     FieldSpec,
     FunctionSpec,
@@ -79,12 +80,17 @@ def validate_program(program: ProgramSpec) -> None:
 
 def collect_diagnostics(program: ProgramSpec) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
+    capabilities = index_named(
+        program.capabilities, "capability", "/capabilities", diagnostics
+    )
     entities = index_named(program.entities, "entity", "/entities", diagnostics)
     functions = index_named(program.functions, "function", "/functions", diagnostics)
     actions = index_named(program.actions, "action", "/actions", diagnostics)
     index_named(program.tests, "test", "/tests", diagnostics)
     validate_test_symbols(program.tests, diagnostics)
 
+    for capability in program.capabilities:
+        validate_capability(capability, diagnostics)
     for entity in program.entities:
         validate_entity(entity, entities, diagnostics)
     validate_relation_cycles(program.entities, entities, diagnostics)
@@ -93,10 +99,43 @@ def collect_diagnostics(program: ProgramSpec) -> list[Diagnostic]:
         validate_function(function, functions, diagnostics)
     validate_function_cycles(program.functions, functions, diagnostics)
     for action in program.actions:
-        validate_action(action, entities, functions, diagnostics)
+        validate_action(action, capabilities, entities, functions, diagnostics)
     for test in program.tests:
-        validate_test(test, actions, entities, diagnostics)
+        validate_test(test, actions, capabilities, entities, diagnostics)
     return diagnostics
+
+
+def validate_capability(
+    capability: CapabilitySpec, diagnostics: list[Diagnostic]
+) -> None:
+    path = f"/capabilities/{capability.name}/operations"
+    if not capability.operations:
+        diagnostics.append(
+            make_diagnostic(
+                "empty_capability",
+                f"capability {capability.name} defines no operations",
+                f"Capability `{capability.name}` にOperationがありません。",
+                path,
+                (),
+                "Add at least one `operation name returns Type` entry.",
+            )
+        )
+    operations: dict[str, str] = {}
+    for operation in capability.operations:
+        operation_path = f"{path}/{operation.name}"
+        if operation.name in operations:
+            diagnostics.append(
+                make_diagnostic(
+                    "duplicate_capability_operation",
+                    f"capability {capability.name} defines operation {operation.name} more than once",
+                    f"Capability `{capability.name}` のOperation `{operation.name}` が重複しています。",
+                    operation_path,
+                    operations,
+                    "Remove or rename one of the operations.",
+                )
+            )
+        operations[operation.name] = operation.return_type
+        validate_type(operation.return_type, operation_path, diagnostics)
 
 
 def validate_function(
@@ -791,6 +830,7 @@ def validate_relation_cycles(
 
 def validate_action(
     action: ActionSpec,
+    capabilities: dict[str, CapabilitySpec],
     entities: dict[str, EntitySpec],
     functions: dict[str, FunctionSpec],
     diagnostics: list[Diagnostic],
@@ -823,6 +863,10 @@ def validate_action(
                     "Use a scalar input and define the reference on an entity field.",
                 )
             )
+
+    inputs.update(
+        validate_capability_uses(action, capabilities, inputs, diagnostics)
+    )
 
     parsed_requirements: list[dict[str, Any]] = []
     parsed_effects: list[dict[str, Any]] = []
@@ -947,17 +991,167 @@ def validate_action(
                     )
 
 
+def validate_capability_uses(
+    action: ActionSpec,
+    capabilities: dict[str, CapabilitySpec],
+    inputs: dict[str, FieldSpec],
+    diagnostics: list[Diagnostic],
+) -> dict[str, FieldSpec]:
+    bindings: dict[str, FieldSpec] = {}
+    used_operations: set[tuple[str, str]] = set()
+    for use in action.uses:
+        path = f"/actions/{action.name}/uses/{use.binding}"
+        key = (use.capability, use.operation)
+        if key in used_operations:
+            diagnostics.append(
+                make_diagnostic(
+                    "duplicate_capability_use",
+                    f"action {action.name} uses {use.capability}.{use.operation} more than once",
+                    f"Action `{action.name}` がCapability `{use.capability}.{use.operation}` を重複使用しています。",
+                    path,
+                    (f"{name}.{operation}" for name, operation in used_operations),
+                    "Use each capability operation once per action.",
+                )
+            )
+        used_operations.add(key)
+        if use.binding in inputs or use.binding in bindings:
+            diagnostics.append(
+                make_diagnostic(
+                    "capability_binding_collision",
+                    f"action {action.name} capability binding {use.binding} collides with another value",
+                    f"Action `{action.name}` のCapability Binding `{use.binding}` がInputまたは他のBindingと衝突します。",
+                    path,
+                    set(inputs) | set(bindings),
+                    "Choose a unique binding name.",
+                )
+            )
+
+        capability = capabilities.get(use.capability)
+        if capability is None:
+            diagnostics.append(
+                make_diagnostic(
+                    "unknown_capability",
+                    f"action {action.name} uses unknown capability {use.capability}",
+                    f"Action `{action.name}` が未定義のCapability `{use.capability}` を使用しています。",
+                    f"{path}/capability",
+                    capabilities,
+                    "Choose a capability from scope.",
+                )
+            )
+            continue
+        operations = {operation.name: operation for operation in capability.operations}
+        operation = operations.get(use.operation)
+        if operation is None:
+            diagnostics.append(
+                make_diagnostic(
+                    "unknown_capability_operation",
+                    f"action {action.name} uses unknown operation {use.capability}.{use.operation}",
+                    f"Action `{action.name}` が未定義のCapability Operation `{use.capability}.{use.operation}` を使用しています。",
+                    f"{path}/operation",
+                    operations,
+                    "Choose an operation from scope.",
+                )
+            )
+            continue
+        bindings[use.binding] = FieldSpec(
+            name=use.binding,
+            type_name=operation.return_type,
+            required=True,
+        )
+    return bindings
+
+
 def validate_test(
     test: TestSpec,
     actions: dict[str, ActionSpec],
+    capabilities: dict[str, CapabilitySpec],
     entities: dict[str, EntitySpec],
     diagnostics: list[Diagnostic],
 ) -> None:
     path = f"/tests/{test.name}"
+    given_operations = validate_capability_values(
+        test, capabilities, diagnostics
+    )
     for step_index, source in enumerate(test.whens):
-        validate_test_step(test, source, step_index, actions, diagnostics)
+        validate_test_step(
+            test,
+            source,
+            step_index,
+            actions,
+            given_operations,
+            diagnostics,
+        )
 
     validate_test_expectations(test, entities, diagnostics)
+
+
+def validate_capability_values(
+    test: TestSpec,
+    capabilities: dict[str, CapabilitySpec],
+    diagnostics: list[Diagnostic],
+) -> set[tuple[str, str]]:
+    provided: set[tuple[str, str]] = set()
+    for given in test.givens:
+        path = f"/tests/{test.name}/givens/{given.capability}.{given.operation}"
+        key = (given.capability, given.operation)
+        if key in provided:
+            diagnostics.append(
+                make_diagnostic(
+                    "duplicate_capability_stub",
+                    f"test {test.name} provides {given.capability}.{given.operation} more than once",
+                    f"Test `{test.name}` がCapability `{given.capability}.{given.operation}` を重複指定しています。",
+                    path,
+                    (f"{name}.{operation}" for name, operation in provided),
+                    "Provide each capability operation once.",
+                )
+            )
+        provided.add(key)
+        capability = capabilities.get(given.capability)
+        if capability is None:
+            diagnostics.append(
+                make_diagnostic(
+                    "unknown_stub_capability",
+                    f"test {test.name} stubs unknown capability {given.capability}",
+                    f"Test `{test.name}` が未定義のCapability `{given.capability}` をStub化しています。",
+                    path,
+                    capabilities,
+                    "Choose a capability from scope.",
+                )
+            )
+            continue
+        operations = {operation.name: operation for operation in capability.operations}
+        operation = operations.get(given.operation)
+        if operation is None:
+            diagnostics.append(
+                make_diagnostic(
+                    "unknown_stub_operation",
+                    f"test {test.name} stubs unknown operation {given.capability}.{given.operation}",
+                    f"Test `{test.name}` が未定義のOperation `{given.capability}.{given.operation}` をStub化しています。",
+                    path,
+                    operations,
+                    "Choose an operation from scope.",
+                )
+            )
+            continue
+        try:
+            literal = parse_literal(given.value)
+        except ExpressionError:
+            diagnostics.append(
+                make_diagnostic(
+                    "invalid_capability_stub",
+                    f"test {test.name} has invalid capability value {given.value}",
+                    f"Test `{test.name}` のCapability値 `{given.value}` は不正です。",
+                    path,
+                    (),
+                    "Use a scalar literal compatible with the operation return type.",
+                )
+            )
+            continue
+        if not literal_matches_type(literal, operation.return_type):
+            add_literal_type_mismatch(
+                diagnostics, literal, operation.return_type, path
+            )
+    return provided
 
 
 def validate_test_step(
@@ -965,6 +1159,7 @@ def validate_test_step(
     source: str,
     step_index: int,
     actions: dict[str, ActionSpec],
+    given_operations: set[tuple[str, str]],
     diagnostics: list[Diagnostic],
 ) -> None:
     path = f"/tests/{test.name}/steps/{step_index}"
@@ -997,6 +1192,19 @@ def validate_test_step(
             )
         )
         return
+
+    for use in action.uses:
+        if (use.capability, use.operation) not in given_operations:
+            diagnostics.append(
+                make_diagnostic(
+                    "missing_test_capability",
+                    f"test {test.name} does not provide {use.capability}.{use.operation} for action {action_name}",
+                    f"Test `{test.name}` にAction `{action_name}` が使用するCapability `{use.capability}.{use.operation}` の値がありません。",
+                    f"{path}/capabilities/{use.capability}.{use.operation}",
+                    (f"{name}.{operation}" for name, operation in given_operations),
+                    f"Add `given {use.capability}.{use.operation} = value`.",
+                )
+            )
 
     inputs = {input_spec.name: input_spec for input_spec in action.inputs}
     seen: set[str] = set()

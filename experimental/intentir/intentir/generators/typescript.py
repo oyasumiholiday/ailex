@@ -15,6 +15,9 @@ TYPE_MAP = {
 
 def generate_typescript(ir: dict[str, Any]) -> str:
     module = ir["module"]
+    capability_nodes = [
+        node for node in ir["nodes"] if node["kind"] == "capability"
+    ]
     entity_nodes = [node for node in ir["nodes"] if node["kind"] == "entity"]
     entities_by_name = {node["name"]: node for node in entity_nodes}
     function_nodes = [node for node in ir["nodes"] if node["kind"] == "function"]
@@ -28,6 +31,9 @@ def generate_typescript(ir: dict[str, Any]) -> str:
     ]
     lines.extend(render_pure_runtime())
     lines.append("")
+    lines.extend(render_capabilities(capability_nodes))
+    if capability_nodes:
+        lines.append("")
     for function in function_nodes:
         lines.extend(render_function(function, functions_by_name))
         lines.append("")
@@ -42,10 +48,28 @@ def generate_typescript(ir: dict[str, Any]) -> str:
         lines.append("")
     lines.extend(
         render_test_runner(
-            test_nodes, entities_by_name, function_nodes, functions_by_name
+            test_nodes,
+            entities_by_name,
+            action_nodes,
+            function_nodes,
+            functions_by_name,
         )
     )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_capabilities(capabilities: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for index, capability in enumerate(capabilities):
+        if index:
+            lines.append("")
+        lines.append(f"export type {capability['name']}Capability = {{")
+        for operation in capability["operations"]:
+            lines.append(
+                f"  {operation['name']}: () => {ts_type(operation['returnType'])};"
+            )
+        lines.append("};")
+    return lines
 
 
 def render_pure_runtime() -> list[str]:
@@ -201,11 +225,18 @@ def render_action(
     for field in action["inputs"]:
         optional = "" if field.get("required") and "default" not in field else "?"
         lines.append(f"  {field['name']}{optional}: {ts_type(field['type'])};")
+    lines.append("};")
+    if action["uses"]:
+        lines.extend(["", *render_action_capabilities(action)])
+    capability_parameter = (
+        f", capabilities: {action['name']}Capabilities"
+        if action["uses"]
+        else ""
+    )
     lines.extend(
         [
-            "};",
             "",
-            f"export function {action['name']}(store: Store, input: {input_type}): Store {{",
+            f"export function {action['name']}(store: Store, input: {input_type}{capability_parameter}): Store {{",
         ]
     )
 
@@ -217,8 +248,29 @@ def render_action(
     default_entries = ", ".join(
         f"{name}: {ts_literal(value)}" for name, value in defaults.items()
     )
-    prefix = f"{{ {default_entries}, ...input }}" if defaults else "{ ...input }"
+    resolved_entries = [default_entries] if default_entries else []
+    resolved_entries.append("...input")
+    resolved_entries.extend(
+        f"{use['binding']}: capabilities.{use['capability']}.{use['operation']}()"
+        for use in action["uses"]
+    )
+    prefix = "{ " + ", ".join(resolved_entries) + " }"
     lines.append(f"  const resolvedInput = {prefix};")
+    for use in action["uses"]:
+        check = render_runtime_type_check(
+            f"resolvedInput.{use['binding']}", use["type"]
+        )
+        message = (
+            f"capability type failed: {use['capability']}.{use['operation']} "
+            f"must return {use['type']}"
+        )
+        lines.extend(
+            [
+                f"  if (!({check})) {{",
+                f"    throw new Error({ts_literal(message)});",
+                "  }",
+            ]
+        )
 
     for requirement in action["requires"]:
         expression = render_condition(
@@ -278,6 +330,20 @@ def render_action(
     return lines
 
 
+def render_action_capabilities(action: dict[str, Any]) -> list[str]:
+    operations: dict[str, set[str]] = {}
+    for use in action["uses"]:
+        operations.setdefault(use["capability"], set()).add(use["operation"])
+    lines = [f"export type {action['name']}Capabilities = {{"]
+    for capability, names in sorted(operations.items()):
+        selected = " | ".join(ts_literal(name) for name in sorted(names))
+        lines.append(
+            f"  {capability}: Pick<{capability}Capability, {selected}>;"
+        )
+    lines.append("};")
+    return lines
+
+
 def render_relation_guards(
     entities_by_name: dict[str, dict[str, Any]],
 ) -> list[str]:
@@ -320,7 +386,18 @@ def render_effect(
 
     if effect["op"] == "insert":
         value_name = f"new{entity}{index}"
-        field_lines = render_created_fields(entity_node["fields"], action["inputs"])
+        value_inputs = [
+            *action["inputs"],
+            *(
+                {
+                    "name": use["binding"],
+                    "type": use["type"],
+                    "required": True,
+                }
+                for use in action["uses"]
+            ),
+        ]
+        field_lines = render_created_fields(entity_node["fields"], value_inputs)
         return [
             f"const {value_name}: {entity} = {{",
             *[f"  {line}" for line in field_lines],
@@ -473,9 +550,11 @@ def render_value(
 def render_test_runner(
     tests: list[dict[str, Any]],
     entities_by_name: dict[str, dict[str, Any]],
+    actions: list[dict[str, Any]],
     functions: list[dict[str, Any]],
     functions_by_name: dict[str, dict[str, Any]],
 ) -> list[str]:
+    actions_by_name = {action["name"]: action for action in actions}
     lines = [
         "export type IntentIRTestResult = { name: string; ok: boolean; error?: string };",
         "",
@@ -484,6 +563,7 @@ def render_test_runner(
     ]
     for index, test in enumerate(tests):
         store_name = f"store{index}"
+        capability_name = f"capabilities{index}"
         checks = [
             render_expectation(
                 expected["expectation"], entities_by_name, functions_by_name
@@ -492,13 +572,22 @@ def render_test_runner(
         ]
         expression = " && ".join(f"({check})" for check in checks) or "true"
         lines.extend(["  try {", f"    let {store_name} = createStore();"])
+        if test["givens"]:
+            lines.append(
+                f"    const {capability_name} = {render_test_capabilities(test['givens'])};"
+            )
         for call in test["steps"]:
             args = ", ".join(
                 f"{arg['name']}: {ts_literal(arg['value']['value'])}"
                 for arg in call["args"]
             )
+            capability_argument = (
+                f", {capability_name}"
+                if actions_by_name[call["action"]]["uses"]
+                else ""
+            )
             lines.append(
-                f"    {store_name} = {call['action']}({store_name}, {{ {args} }});"
+                f"    {store_name} = {call['action']}({store_name}, {{ {args} }}{capability_argument});"
             )
         lines.extend(
             [
@@ -528,6 +617,20 @@ def render_test_runner(
     return lines
 
 
+def render_test_capabilities(givens: list[dict[str, Any]]) -> str:
+    capabilities: dict[str, list[dict[str, Any]]] = {}
+    for given in givens:
+        capabilities.setdefault(given["capability"], []).append(given)
+    rendered_capabilities = []
+    for capability, values in sorted(capabilities.items()):
+        operations = ", ".join(
+            f"{value['operation']}: () => {ts_literal(value['value'])}"
+            for value in sorted(values, key=lambda item: item["operation"])
+        )
+        rendered_capabilities.append(f"{capability}: {{ {operations} }}")
+    return "{ " + ", ".join(rendered_capabilities) + " }"
+
+
 def render_expectation(
     expectation: dict[str, Any],
     entities_by_name: dict[str, dict[str, Any]],
@@ -551,6 +654,18 @@ def render_expectation(
 
 def ts_type(type_name: str) -> str:
     return TYPE_MAP.get(type_name, "unknown")
+
+
+def render_runtime_type_check(expression: str, type_name: str) -> str:
+    if type_name in {"Text", "UUID"}:
+        return f'typeof {expression} === "string"'
+    if type_name == "Boolean":
+        return f'typeof {expression} === "boolean"'
+    if type_name == "Integer":
+        return f'typeof {expression} === "number" && Number.isInteger({expression})'
+    if type_name == "Number":
+        return f'typeof {expression} === "number" && Number.isFinite({expression})'
+    return "false"
 
 
 def camel_plural(name: str) -> str:

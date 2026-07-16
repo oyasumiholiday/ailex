@@ -55,6 +55,7 @@ def run_action(
     action_name: str,
     inputs: dict[str, Any],
     state: dict[str, Any] | None = None,
+    capability_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     entities = entity_index(ir)
     actions = action_index(ir)
@@ -64,12 +65,21 @@ def run_action(
         raise ValueError(f"unknown action: {action_name}")
     if not isinstance(inputs, dict):
         raise ValueError("action inputs must be a JSON object")
+    if capability_values is not None and not isinstance(capability_values, dict):
+        raise ValueError("capability values must be a JSON object")
 
     store = create_store(entities, state)
     checks: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     result = execute_action(
-        action, inputs, store, entities, functions, checks, errors
+        action,
+        inputs,
+        store,
+        entities,
+        functions,
+        checks,
+        errors,
+        capability_values=capability_values,
     )
     return {
         "ok": result is not None and not errors,
@@ -80,6 +90,9 @@ def run_action(
         "state": store,
         "created": result["created"] if result else {},
         "affected": result["affected"] if result else {},
+        "capabilitiesUsed": [
+            f"{use['capability']}.{use['operation']}" for use in action["uses"]
+        ],
     }
 
 
@@ -354,6 +367,10 @@ def verify_test(
     store = create_store(entities)
     checks: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    capability_values = {
+        f"{given['capability']}.{given['operation']}": given["value"]
+        for given in test["givens"]
+    }
 
     for step_index, call in enumerate(test["steps"]):
         action = actions[call["action"]]
@@ -366,6 +383,7 @@ def verify_test(
             functions,
             checks,
             errors,
+            capability_values=capability_values,
             step_index=step_index,
         )
         if result is None:
@@ -411,11 +429,18 @@ def execute_action(
     functions: dict[str, dict[str, Any]],
     checks: list[dict[str, Any]],
     errors: list[dict[str, Any]],
+    capability_values: dict[str, Any] | None = None,
     step_index: int | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]] | None:
     inputs = prepare_inputs(action, raw_inputs, errors)
     if inputs is None:
         return None
+    bindings = prepare_capability_bindings(
+        action, capability_values or {}, errors
+    )
+    if bindings is None:
+        return None
+    inputs.update(bindings)
 
     working = deepcopy(store)
     created: dict[str, dict[str, Any]] = {}
@@ -637,6 +662,39 @@ def prepare_inputs(
                 )
             )
     return None if errors else inputs
+
+
+def prepare_capability_bindings(
+    action: dict[str, Any],
+    capability_values: dict[str, Any],
+    errors: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    bindings: dict[str, Any] = {}
+    for use in action["uses"]:
+        name = f"{use['capability']}.{use['operation']}"
+        if name not in capability_values:
+            errors.append(
+                verification_error(
+                    "missing_runtime_capability",
+                    f"action {action['name']} requires capability value {name}",
+                    f"Action `{action['name']}` に必要なCapability値 `{name}` がありません。",
+                    use["id"],
+                )
+            )
+            continue
+        value = capability_values[name]
+        if not value_matches_type(value, use["type"]):
+            errors.append(
+                verification_error(
+                    "runtime_capability_type_mismatch",
+                    f"capability {name} must return {use['type']}",
+                    f"Capability `{name}` の値は `{use['type']}` 型である必要があります。",
+                    use["id"],
+                )
+            )
+            continue
+        bindings[use["binding"]] = deepcopy(value)
+    return None if errors else bindings
 
 
 def create_store(

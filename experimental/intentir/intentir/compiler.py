@@ -118,6 +118,11 @@ def load_program(path: Path | str) -> ProgramSpec:
     root = visit(root_path)
     return ProgramSpec(
         module=root.module,
+        capabilities=[
+            capability
+            for source_path in order
+            for capability in programs[source_path].capabilities
+        ],
         entities=[
             entity for source_path in order for entity in programs[source_path].entities
         ],
