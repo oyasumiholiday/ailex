@@ -1,0 +1,18 @@
+module Broken
+
+entity Task:
+  title: Text
+
+action CreateTask:
+  input:
+    name: Text
+  requires:
+    title is not empty
+  effects:
+    insert MissingTask
+  ensures:
+    created Task.missing equals input.title
+
+test "bad":
+  when MissingAction(title="x")
+  expect MissingTask exists

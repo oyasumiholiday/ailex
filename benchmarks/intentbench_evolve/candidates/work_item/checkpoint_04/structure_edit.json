@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "0.1.0",
+  "operations": [
+    {
+      "kind": "add_definition",
+      "target": "action:ArchiveWorkItem",
+      "value": {
+        "source": "action ArchiveWorkItem:\n  input:\n    id: UUID required\n  effects:\n    update WorkItem where id equals input.id set archived = true"
+      }
+    }
+  ]
+}

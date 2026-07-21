@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "0.13.0",
+  "baseModuleId": "sha256:89007a9b8c1ad00020d928fcada8eb229f25f8c951d84feddb6ee733d447571f",
+  "operations": [
+    {
+      "kind": "insert_member",
+      "target": "entity:WorkItem",
+      "expectedId": "sha256:0cc74086675bd3060eb2354437ec279a6249082664b4841fdc1f6af85b6ad9be",
+      "member": "fields",
+      "value": {
+        "name": "owner",
+        "type": "Text",
+        "default": "unassigned"
+      }
+    }
+  ],
+  "requestedObligations": ["static", "affected-tests"]
+}

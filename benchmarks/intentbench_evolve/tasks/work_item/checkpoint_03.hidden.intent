@@ -1,0 +1,3 @@
+test "archived defaults to false":
+  when CreateWorkItem(id="archive-default-hidden", title="archive")
+  expect WorkItem exists with archived false

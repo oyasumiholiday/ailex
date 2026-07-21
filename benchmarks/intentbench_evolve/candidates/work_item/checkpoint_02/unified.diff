@@ -1,0 +1,11 @@
+diff --git a/workspace.intent b/workspace.intent
+--- a/workspace.intent
++++ b/workspace.intent
+@@ -5,6 +5,7 @@ entity WorkItem:
+   title: Text required
+   status: Text default "open"
+   priority: Integer default 0
++  owner: Text default "unassigned"
+
+ action CreateWorkItem:
+   input:

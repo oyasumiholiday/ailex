@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentir.dev/schemas/intentbench-evolve/trajectory-manifest-0.1.0.json",
+  "title": "IntentBench-Evolve Trajectory Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "suite", "conditions", "applications"],
+  "properties": {
+    "schemaVersion": {"const": "0.1.0"},
+    "suite": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "conditions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["full-file", "unified-diff", "structure-edit", "intent-patch"]
+      }
+    },
+    "applications": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/application"}
+    }
+  },
+  "$defs": {
+    "fileReference": {"type": "string", "minLength": 1},
+    "candidateMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "full-file": {"$ref": "#/$defs/fileReference"},
+        "unified-diff": {"$ref": "#/$defs/fileReference"},
+        "structure-edit": {"$ref": "#/$defs/fileReference"},
+        "intent-patch": {"$ref": "#/$defs/fileReference"}
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "checkpoint",
+        "instruction",
+        "hiddenTests",
+        "expectedChangedSymbols"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "checkpoint": {"type": "integer", "minimum": 1},
+        "instruction": {"type": "string", "minLength": 1},
+        "hiddenTests": {"$ref": "#/$defs/fileReference"},
+        "expectedChangedSymbols": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "candidates": {"$ref": "#/$defs/candidateMap"}
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "baseSource", "checkpoints"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "baseSource": {"$ref": "#/$defs/fileReference"},
+        "checkpoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/checkpoint"}
+        }
+      }
+    }
+  }
+}

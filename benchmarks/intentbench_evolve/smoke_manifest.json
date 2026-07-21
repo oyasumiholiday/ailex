@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "0.1.0",
+  "suite": "intentbench-evolve-smoke",
+  "description": "A handcrafted harness smoke test; it is not evidence that one editing condition outperforms another.",
+  "conditions": [
+    "full-file",
+    "unified-diff",
+    "structure-edit",
+    "intent-patch"
+  ],
+  "tasks": [
+    {
+      "id": "work-item-add-priority-01",
+      "application": "work-item",
+      "checkpoint": 1,
+      "instruction": "Add an Integer priority field to WorkItem with a default value of 0.",
+      "baseSource": "tasks/work_item/base.intent",
+      "hiddenTests": "tasks/work_item/checkpoint_01.hidden.intent",
+      "expectedChangedSymbols": [
+        "entity:WorkItem"
+      ],
+      "candidates": {
+        "full-file": "candidates/work_item/checkpoint_01/full_file.intent",
+        "unified-diff": "candidates/work_item/checkpoint_01/unified.diff",
+        "structure-edit": "candidates/work_item/checkpoint_01/structure_edit.json",
+        "intent-patch": "candidates/work_item/checkpoint_01/intent_patch.json"
+      }
+    }
+  ]
+}

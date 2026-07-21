@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "0.1.0",
+  "operations": [
+    {
+      "kind": "insert_member",
+      "target": "entity:WorkItem",
+      "member": "fields",
+      "value": {
+        "name": "archived",
+        "type": "Boolean",
+        "default": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "0.1.0",
+  "suite": "intentbench-evolve-trajectory-smoke",
+  "description": "A four-checkpoint handcrafted trajectory used to validate sequential benchmark state.",
+  "conditions": [
+    "full-file",
+    "unified-diff",
+    "structure-edit",
+    "intent-patch"
+  ],
+  "applications": [
+    {
+      "id": "work-item",
+      "baseSource": "tasks/work_item/base.intent",
+      "checkpoints": [
+        {
+          "id": "add-priority",
+          "checkpoint": 1,
+          "instruction": "Add an Integer priority field to WorkItem with a default value of 0.",
+          "hiddenTests": "tasks/work_item/checkpoint_01.hidden.intent",
+          "expectedChangedSymbols": ["entity:WorkItem"],
+          "candidates": {
+            "full-file": "candidates/work_item/checkpoint_01/full_file.intent",
+            "unified-diff": "candidates/work_item/checkpoint_01/unified.diff",
+            "structure-edit": "candidates/work_item/checkpoint_01/structure_edit.json",
+            "intent-patch": "candidates/work_item/checkpoint_01/intent_patch.json"
+          }
+        },
+        {
+          "id": "add-owner",
+          "checkpoint": 2,
+          "instruction": "Add a Text owner field to WorkItem with a default value of unassigned.",
+          "hiddenTests": "tasks/work_item/checkpoint_02.hidden.intent",
+          "expectedChangedSymbols": ["entity:WorkItem"],
+          "candidates": {
+            "full-file": "candidates/work_item/checkpoint_02/full_file.intent",
+            "unified-diff": "candidates/work_item/checkpoint_02/unified.diff",
+            "structure-edit": "candidates/work_item/checkpoint_02/structure_edit.json",
+            "intent-patch": "candidates/work_item/checkpoint_02/intent_patch.json"
+          }
+        },
+        {
+          "id": "add-archive-state",
+          "checkpoint": 3,
+          "instruction": "Add a Boolean archived field to WorkItem with a default value of false.",
+          "hiddenTests": "tasks/work_item/checkpoint_03.hidden.intent",
+          "expectedChangedSymbols": ["entity:WorkItem"],
+          "candidates": {
+            "full-file": "candidates/work_item/checkpoint_03/full_file.intent",
+            "unified-diff": "candidates/work_item/checkpoint_03/unified.diff",
+            "structure-edit": "candidates/work_item/checkpoint_03/structure_edit.json",
+            "intent-patch": "candidates/work_item/checkpoint_03/intent_patch.json"
+          }
+        },
+        {
+          "id": "add-archive-action",
+          "checkpoint": 4,
+          "instruction": "Add an ArchiveWorkItem action that selects by id and sets archived to true.",
+          "hiddenTests": "tasks/work_item/checkpoint_04.hidden.intent",
+          "expectedChangedSymbols": ["action:ArchiveWorkItem"],
+          "candidates": {
+            "full-file": "candidates/work_item/checkpoint_04/full_file.intent",
+            "unified-diff": "candidates/work_item/checkpoint_04/unified.diff",
+            "structure-edit": "candidates/work_item/checkpoint_04/structure_edit.json",
+            "intent-patch": "candidates/work_item/checkpoint_04/intent_patch.json"
+          }
+        }
+      ]
+    }
+  ]
+}

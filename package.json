@@ -17,13 +17,14 @@
   "files": [
     "bin",
     "core",
-    "examples",
+    "examples/*.ax",
     "agent",
     "PRIMER.md",
     "PRIMER.en.md",
     "AGENTS.md",
     "SPEC.md",
     "README.md",
+    "AILEX_README.md",
     "README.ja.md",
     "CHANGELOG.md",
     "env.ts"

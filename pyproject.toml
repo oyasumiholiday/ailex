@@ -1,0 +1,23 @@
+[project]
+name = "intentir"
+version = "0.14.0"
+description = "A content-addressed semantic IR with executable contracts for AI development workflows."
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE-APACHE"]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.27,<2"]
+
+[project.scripts]
+intentir = "intentir.cli:main"
+intentir-mcp = "intentir.mcp_server:main"
+intentir-openai-adapter = "intentir.providers.openai_responses:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["intentir*"]

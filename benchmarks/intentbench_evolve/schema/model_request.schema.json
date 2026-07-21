@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentir.dev/schemas/intentbench-evolve/model-request-0.1.0.json",
+  "title": "IntentBench-Evolve Model Adapter Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "suite",
+    "application",
+    "checkpoint",
+    "checkpointId",
+    "condition",
+    "instruction",
+    "source",
+    "context",
+    "outputContract"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "0.1.0"},
+    "requestId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "suite": {"type": "string", "minLength": 1},
+    "application": {"type": "string", "minLength": 1},
+    "checkpoint": {"type": "integer", "minimum": 1},
+    "checkpointId": {"type": "string", "minLength": 1},
+    "condition": {
+      "enum": ["full-file", "unified-diff", "structure-edit", "intent-patch"]
+    },
+    "instruction": {"type": "string", "minLength": 1},
+    "source": {"type": "string", "minLength": 1},
+    "context": {
+      "type": "object",
+      "required": ["moduleId", "nodes"],
+      "properties": {
+        "moduleId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "nodes": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "outputContract": {"type": "object"}
+  }
+}

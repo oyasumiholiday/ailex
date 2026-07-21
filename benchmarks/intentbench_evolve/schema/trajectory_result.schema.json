@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentir.dev/schemas/intentbench-evolve/trajectory-result-0.1.0.json",
+  "title": "IntentBench-Evolve Trajectory Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "schemaVersion",
+    "mode",
+    "adapter",
+    "suite",
+    "description",
+    "conditions",
+    "summary",
+    "trajectories"
+  ],
+  "properties": {
+    "ok": {"type": "boolean"},
+    "schemaVersion": {"const": "0.1.0"},
+    "mode": {"const": "trajectory"},
+    "adapter": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["fixture-files", "external-command"]}
+      }
+    },
+    "suite": {"type": "string"},
+    "description": {"type": "string"},
+    "conditions": {"type": "array", "items": {"type": "string"}},
+    "summary": {"type": "object"},
+    "trajectories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ok",
+          "application",
+          "condition",
+          "initialModuleId",
+          "finalModuleId",
+          "completedCheckpoints",
+          "totalCheckpoints",
+          "checkpoints"
+        ],
+        "properties": {
+          "ok": {"type": "boolean"},
+          "application": {"type": "string"},
+          "condition": {"type": "string"},
+          "initialModuleId": {"type": "string"},
+          "finalModuleId": {"type": "string"},
+          "completedCheckpoints": {"type": "integer", "minimum": 0},
+          "totalCheckpoints": {"type": "integer", "minimum": 1},
+          "checkpoints": {"type": "array", "items": {"type": "object"}}
+        }
+      }
+    }
+  }
+}

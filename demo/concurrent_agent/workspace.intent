@@ -1,0 +1,17 @@
+module ConcurrentAgentDemo
+
+entity WorkItem:
+  id: UUID required key
+  title: Text required
+  status: Text default "open"
+
+action CreateWorkItem:
+  input:
+    id: UUID required
+    title: Text required
+  effects:
+    insert WorkItem
+
+test "creates work item":
+  when CreateWorkItem(id="item-1", title="first")
+  expect WorkItem exists with title "first"

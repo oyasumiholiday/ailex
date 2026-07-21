@@ -1,0 +1,3 @@
+test "default priority is zero":
+  when CreateWorkItem(id="item-hidden", title="hidden")
+  expect WorkItem exists with priority 0
