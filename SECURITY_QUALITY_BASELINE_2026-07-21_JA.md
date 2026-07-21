@@ -9,13 +9,13 @@
 
 ## 結論
 
-**現時点の公開・Package Release判定は停止です。** Local実装とTest、License分離、初回CommitによるRollback点の確保、Git remoteとの履歴照合は通っています。一方、GitHub側の保護設定とCI実行結果、MCP Host側の利用者承認・監査は確認できていません。
+**現時点のSource公開基盤判定はOK、Package Release判定は停止です。** Local実装、License分離、Rollback点、Git remote、GitHub CI、Secret scanning、Push protection、Private Vulnerability Reporting、`main`保護、隔離環境へのwheel導入は確認できました。Package RegistryへのReleaseはDraft PR #3のReview・MergeとRelease Tag作成後に行います。MCP書込みはHost側の利用者承認と監査を確認するまで有効化しません。
 
 ## 公開停止事項
 
 | 項目 | 判定 | 根拠 | 対処/追加確認 |
 |---|---|---|---|
-| GitHub保護とCI | 未確認 | `origin`の`main`とv0.12履歴は照合済みだが、Repository設定とGitHub Actions結果は未確認 | Secret scanning、Push protection、Branch protection、必須CIを確認する |
+| Package Release | 停止 | Draft PR #3は未MergeでRelease Tagも未作成 | Review後に保護済み`main`へMergeし、VersionとTagを固定してから配布する |
 | MCP書込み運用 | 未確認 | 実装は既定拒否だが、Host側の利用者承認UIと永続監査Logは未確認 | `--allow-writes`を使うHostごとに承認・Diff表示・監査を検証する |
 
 ## OK
@@ -25,7 +25,10 @@
 | 元Review基準の保全 | 元FileとProject内CopyのSHA-256が一致 |
 | OSS License | AilexのMITを`LICENSE`に保持し、IntentIRのApache-2.0を`LICENSE-APACHE`とPackage metadataへ設定 |
 | Git remoteと履歴 | `origin`を既存Repositoryへ接続し、`main`、v0.12 Draft PR、v0.14統合Branchの関係を照合 |
-| Release CommitとRollback | `main`初回Snapshotで公開対象とRollback点を固定 |
+| Release CommitとRollback | `codex/intentir-v0.14`の統合CommitをLocalとGitHubへ保存し、公開対象とRollback点を固定 |
+| GitHub CI | PR #3のAilex、Python 3.11、Python 3.13、optional MCPの全Jobが成功 |
+| GitHub Security | Secret scanning、Push protection、Dependabot security updates、Private Vulnerability Reportingを有効化。Secret/Dependabotの未解決Alertは0件 |
+| `main`保護 | 4 CI、最新Base、会話解決、Linear historyを必須化。管理者にも適用し、Force pushと削除を禁止 |
 | 秘密候補のGit除外 | `.env`、秘密鍵、DB、Log、仮想環境などを`.gitignore`へ追加 |
 | 作業Treeの限定秘密Scan | 一般的なCloud/GitHub/OpenAI/Slack Tokenと秘密鍵の形式に一致するFileなし。秘密・Credentialを示すFile名もなし |
 | 依存固定 | `uv.lock`でMCPを含む32 Packageを固定し、`uv lock --check`成功 |
@@ -39,16 +42,13 @@
 | OpenAI Provider境界 | API Keyは環境変数からのみ読取り、Payload/Resultへ非保存。`store: false`、Strict Structured Outputs、4 MB応答上限、Provider Body非転載をOffline Testで確認 |
 | Data/Migration | SQLite Transaction、Constraint、失敗時Rollback、Plan-only Migration、破壊的変更の追加許可を自動Testで確認 |
 | Local Test | Ailex 89件成功。IntentIRは通常環境91件中90件成功、optional MCP 1件のみSkip。MCP環境では91件すべて成功 |
-| Compile/Package | `compileall`成功、`intentir-0.14.0` wheel build成功 |
+| Compile/Package | `compileall`とwheel buildに成功。隔離venvへ導入したCLIでSample Test成功 |
 
 ## 未確認
 
-- 過去のGit履歴や公開物に秘密が含まれていないか、含まれていた場合に失効・再発行済みか
-- GitHub Secret scanning、Push protection、Private Vulnerability Reporting、Branch protection、必須Review、必須CIの設定
-- 追加したGitHub ActionsがGitHub上のPython 3.11/3.13環境で実行成功するか
 - `--allow-writes`を使う各MCP Hostで、適用直前の利用者承認、対象Path、Diff、監査記録が保証されるか
 - Release後の監視、Incident対応、担当者、更新周期
-- macOS以外でのCLI、SQLite、生成TypeScriptの動作
+- 実Model APIを使うIntentBench-Evolve Trialと再現性
 
 ## 対象外
 
@@ -77,16 +77,20 @@
 | `python3 -m compileall -q intentir tests` | 成功 |
 | `python3 -m pip wheel . --no-deps` | wheel build成功 |
 | Wheel metadata / contents | `License-Expression: Apache-2.0`と`dist-info/licenses/LICENSE-APACHE`を確認 |
+| 隔離venvへのwheel導入 | `intentir --help`と`examples/todo.intent`のTestが成功 |
+| GitHub Actions | Ailex、Python 3.11、Python 3.13、optional MCPの全Job成功 |
+| GitHub Security API | 中核Secret scanning、Push protection、Dependabot security updates、Private Vulnerability Reportingが有効。未解決Alert 0件 |
+| GitHub Branch Protection API | 4 CI、Strict更新、会話解決、Linear history、管理者適用を確認。Force pushと削除は無効 |
 | Fixture Trajectory / Model Adapter | 16 / 16および4 / 4 Checkpoint Run成功 |
 | OpenAI Provider Offline Test | Payload、Structured Output、Provenance、秘密非混入、失敗分類が成功。実API未実行 |
 | Benchmarkの7種類の公開JSON Schema | Fixture/Model Manifestを含む9実体がDraft 2020-12検証成功 |
 | Agent CLI/MCP CLIの`--help` | `--allow-writes`を確認 |
 
-限定秘密Scanは完全な保証ではありません。GitHub接続後はGit履歴を含む専用ScannerとGitHub側のPush protectionでも確認します。
+限定秘密Scanは完全な保証ではありません。GitHub側のSecret scanningとPush protectionを継続し、Alert発生時は秘密を失効・再発行して履歴上の値も無効化します。非Provider PatternとToken validity checksはAPI経由の有効化後も無効表示のため、現行のGitHub提供範囲外として中核機能で運用します。
 
 ## 公開前に直す順番
 
-1. 統合BranchをGitHubへ公開し、公開済み秘密の有無を確認する
-2. GitHubのSecret scanning、Push protection、Branch protection、Private Vulnerability Reporting、必須CIを設定する
-3. GitHub Actionsを実行し、AilexとIntentIRの全Job成功を確認する
+1. Draft PR #3をReviewし、保護済み`main`へMergeする
+2. `CITATION.cff`、`CONTRIBUTING.md`、再現Containerを追加する
+3. Release後の監視担当と手順を決め、VersionとTagを固定してPackageを配布する
 4. MCP書込みを配布する場合、Host側の利用者承認と永続監査を確認する

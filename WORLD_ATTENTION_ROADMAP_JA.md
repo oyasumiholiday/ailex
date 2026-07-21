@@ -1,8 +1,8 @@
 # IntentIRを世界で注目される成果にするための調査と実行計画
 
 - 調査日: 2026-07-16
-- 対象: [oyasumiholiday/ailex](https://github.com/oyasumiholiday/ailex) と `experimental/intentir`
-- 現在地: Ailex v0.5系、IntentIR v0.12 Draft PR
+- 対象: [oyasumiholiday/ailex](https://github.com/oyasumiholiday/ailex) のAilex表層言語とroot IntentIR意味層
+- 現在地: Ailex v0.5.3、IntentIR v0.14 Draft PR #3
 - 調査方法: 現行コードと公開状態の監査、一次資料・公式仕様・査読論文との比較
 
 > **2026-07-21更新:** 第一の外部目標をICSE 2027 Tool Demonstration and Data Showcaseに確定しました。現在はIntentPatch v0.13とAgent/MCP接続v0.14まで実装済みです。公式要件に合わせた最新の締切、Artifact、Paper、Video、評価計画は [ICSE_2027_DEMO_SUBMISSION_PLAN_JA.md](ICSE_2027_DEMO_SUBMISSION_PLAN_JA.md) を正とします。
@@ -44,7 +44,7 @@ IntentIRは、すでに「動くアイデア」の段階には到達していま
 
 ### 公開面の不足
 
-2026-07-16時点のGitHub公開状態は次のとおりです。
+2026-07-16時点のGitHub公開状態は次のとおりです。以下は当時のSnapshotであり、CI追加、IntentIRのroot昇格、Security Policy、README Version整合は2026-07-21のv0.14 Draft PR #3で解消済みです。
 
 - Repository作成から約3日
 - 0 stars、0 forks

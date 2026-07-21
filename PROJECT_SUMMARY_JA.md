@@ -435,7 +435,7 @@ python3 -m intentir examples/todo.intent --emit verify
 
 Ailexは89件の適合Testが成功します。IntentIRの自動Testは91件です。90件は外部依存なしで実行でき、1件はoptional MCP環境でTool discovery、入力・出力Schema、stdio実呼出し、構造化失敗を検証します。Benchmark境界、4段階Trajectory、Model Adapter契約、OpenAI ProviderのOffline Response、Provenance、失敗分類、二Agent競合Demo、従来のPatch、Capability、Module Link、Entity参照、部分SQL、Migration、旧DB互換、SQLite永続化も引き続き含みます。
 
-セキュリティ・品質の運用基準と初回確認結果は、[SECURITY_QUALITY_CHECKLIST_JA.md](SECURITY_QUALITY_CHECKLIST_JA.md) と [SECURITY_QUALITY_BASELINE_2026-07-21_JA.md](SECURITY_QUALITY_BASELINE_2026-07-21_JA.md) に分離しました。AilexのMIT Licenseを保持したままIntentIRをApache-2.0として分離し、初回Commitで公開対象とRollback点を固定しました。Git remoteは既存v0.12履歴と照合済みですが、GitHub側の保護設定とCI実行結果が未確認のため、公開・Release可能という判定にはしていません。
+セキュリティ・品質の運用基準と初回確認結果は、[SECURITY_QUALITY_CHECKLIST_JA.md](SECURITY_QUALITY_CHECKLIST_JA.md) と [SECURITY_QUALITY_BASELINE_2026-07-21_JA.md](SECURITY_QUALITY_BASELINE_2026-07-21_JA.md) に分離しました。AilexのMIT Licenseを保持したままIntentIRをApache-2.0として分離し、CommitとGit remoteでRollback点を固定しました。PR #3の全CI、Secret scanning、Push protection、Private Vulnerability Reporting、`main`保護、隔離venvへのwheel導入は確認済みです。Package ReleaseはPRのReview・MergeとRelease Tag作成まで保留し、MCP書込みはHost側の承認・監査を確認するまで無効のまま運用します。
 
 ## 現在の制約
 
