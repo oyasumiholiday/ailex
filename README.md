@@ -5,6 +5,8 @@ This repository contains two layers of one AI-first programming system:
 - [Ailex](AILEX_README.md) is the compact typed surface language that AI and people write.
 - IntentIR is the executable, machine-oriented semantic layer that AI agents and compilers transform safely.
 
+Start with the [short Quickstart](QUICKSTART.md) for local and Container commands.
+
 IntentIR combines content-addressed program structure with typed pure functions, contracts, CRUD effects, scenario tests, structured diagnostics, a transactional interpreter, relational SQLite projection, and TypeScript generation. Concise Ailex source is intended for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
 Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md), [hash-guarded semantic patches](PATCH_VALIDATION_REPORT_JA.md), and the [Agent/MCP interface](AGENT_MCP_VALIDATION_REPORT_JA.md).

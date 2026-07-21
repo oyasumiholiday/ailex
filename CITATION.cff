@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Ailex or IntentIR in research, please cite this software and the exact release or commit used."
+title: "Ailex + IntentIR"
+type: software
+authors:
+  - name: oyasumiholiday
+repository-code: "https://github.com/oyasumiholiday/ailex"
+url: "https://github.com/oyasumiholiday/ailex"
+license:
+  - MIT
+  - Apache-2.0
+keywords:
+  - artificial intelligence
+  - programming languages
+  - intermediate representation
+  - software engineering
+  - program verification
+abstract: "Ailex is a compact typed surface language for AI-assisted programming. IntentIR is its executable, content-addressed semantic layer for guarded edits, dependency analysis, verification, and backend generation."

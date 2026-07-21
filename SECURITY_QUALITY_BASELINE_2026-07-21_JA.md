@@ -43,6 +43,8 @@
 | Data/Migration | SQLite Transaction、Constraint、失敗時Rollback、Plan-only Migration、破壊的変更の追加許可を自動Testで確認 |
 | Local Test | Ailex 89件成功。IntentIRは通常環境91件中90件成功、optional MCP 1件のみSkip。MCP環境では91件すべて成功 |
 | Compile/Package | `compileall`とwheel buildに成功。隔離venvへ導入したCLIでSample Test成功 |
+| Reproducible Container | 公式Python 3.13 slimをmulti-arch Digestで固定。UID 10001、Networkなし、読取り専用Root、`/tmp`限定書込みでDemo成功 |
+| Public contribution metadata | CFF 1.2.0 Schema、Issue Form YAML、Contribution手順、Private Vulnerability Reporting導線を確認 |
 
 ## 未確認
 
@@ -81,6 +83,10 @@
 | GitHub Actions | Ailex、Python 3.11、Python 3.13、optional MCPの全Job成功 |
 | GitHub Security API | 中核Secret scanning、Push protection、Dependabot security updates、Private Vulnerability Reportingが有効。未解決Alert 0件 |
 | GitHub Branch Protection API | 4 CI、Strict更新、会話解決、Linear history、管理者適用を確認。Force pushと削除は無効 |
+| `cffconvert --validate` | Citation metadataはCFF 1.2.0 Schemaへ適合 |
+| Issue Form YAML parse | Bug、Feature、Configの3 Fileが成功 |
+| `docker build --pull -t intentir:0.14 .` | Digest固定ImageのBuild成功 |
+| 隔離Container Demo | UID 10001、`--network none`、`--read-only`、`/tmp` tmpfsで`RESULT: PASS` |
 | Fixture Trajectory / Model Adapter | 16 / 16および4 / 4 Checkpoint Run成功 |
 | OpenAI Provider Offline Test | Payload、Structured Output、Provenance、秘密非混入、失敗分類が成功。実API未実行 |
 | Benchmarkの7種類の公開JSON Schema | Fixture/Model Manifestを含む9実体がDraft 2020-12検証成功 |
@@ -91,6 +97,5 @@
 ## 公開前に直す順番
 
 1. Draft PR #3をReviewし、保護済み`main`へMergeする
-2. `CITATION.cff`、`CONTRIBUTING.md`、再現Containerを追加する
-3. Release後の監視担当と手順を決め、VersionとTagを固定してPackageを配布する
-4. MCP書込みを配布する場合、Host側の利用者承認と永続監査を確認する
+2. Release後の監視担当と手順を決め、VersionとTagを固定してPackageを配布する
+3. MCP書込みを配布する場合、Host側の利用者承認と永続監査を確認する

@@ -30,6 +30,26 @@ jobs:
       - name: Run Ailex conformance suite
         run: npm test
 
+  container:
+    name: Container demo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build pinned image
+        run: docker build --pull -t intentir:ci .
+      - name: Verify non-root user
+        run: test "$(docker run --rm --entrypoint id intentir:ci -u)" = "10001"
+      - name: Run isolated demonstration
+        run: >-
+          docker run --rm
+          --network none
+          --read-only
+          --tmpfs /tmp:rw,noexec,nosuid,size=64m
+          intentir:ci
+
   core:
     name: Core Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest

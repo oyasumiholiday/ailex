@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+venv
+node_modules
+__pycache__
+*.pyc
+*.pyo
+*.db
+*.sqlite
+*.sqlite3
+*.log
+dist
+build
+htmlcov
+.coverage
+.DS_Store

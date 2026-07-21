@@ -2,13 +2,13 @@
 
 ## Reporting
 
-Security vulnerabilities should be reported through GitHub Private Vulnerability Reporting after it is enabled for the repository. Do not include credentials, private source, personal data, or exploit details in a public issue.
+Security vulnerabilities should be reported through [GitHub Private Vulnerability Reporting](https://github.com/oyasumiholiday/ailex/security/advisories/new). Do not include credentials, private source, personal data, or exploit details in a public issue.
 
 If private reporting is unavailable, open a public issue containing only a request for a private contact channel. Do not post the vulnerability details there.
 
 ## Supported Version
 
-Until the first stable release, only the latest published IntentIR version is supported with security fixes.
+Until the first stable release, security fixes target the latest default-branch versions of Ailex and IntentIR. Release-specific support periods will be documented when versioned Packages are published.
 
 ## Review Standard
 

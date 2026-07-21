@@ -173,8 +173,8 @@ Tool Demonstrationでも、成熟ToolならValidation結果、初期Prototypeな
 - [x] 初回Commitで公開対象とRollback点を固定
 - [x] Git remoteを確定し、既存Repositoryとの履歴を照合
 - [x] GitHub CI、Secret scanning、Push protection、Branch protectionを確認
-- `CITATION.cff`、`CONTRIBUTING.md`、Issue templateを追加
-- Containerと英語Quickstartの最小版を作成
+- [x] `CITATION.cff`、`CONTRIBUTING.md`、Issue templateを追加
+- [x] Containerと英語Quickstartの最小版を作成
 - `SECURITY_QUALITY_BASELINE_2026-07-21_JA.md`の公開停止事項を解消
 
 ### Gate B: DemoとBenchmark harness 2026-08-01〜08-21

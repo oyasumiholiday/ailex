@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a reproducible problem in Ailex or IntentIR
+title: "[Bug] "
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Ailex surface language
+        - IntentIR compiler or runtime
+        - Agent or MCP interface
+        - Benchmark or demonstration
+        - Packaging, CI, or documentation
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the problem and its impact in a few sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide the smallest source file and exact commands needed to reproduce the problem.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "IntentIR 0.14.0, Ailex 0.5.3, or a commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "OS, architecture, Python or Node.js version"
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed result
+      description: Include structured diagnostics when available. Remove secrets, private paths, personal data, and hidden evaluation material.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I searched existing Issues and Pull Requests for this problem.
+          required: true
+        - label: This report contains no credentials, private data, proprietary source, or hidden benchmark tests.
+          required: true
+        - label: This is not a security vulnerability. I will use Private Vulnerability Reporting for security issues.
+          required: true
