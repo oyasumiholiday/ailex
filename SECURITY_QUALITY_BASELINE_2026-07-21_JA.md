@@ -26,9 +26,9 @@
 | OSS License | AilexのMITを`LICENSE`に保持し、IntentIRのApache-2.0を`LICENSE-APACHE`とPackage metadataへ設定 |
 | Git remoteと履歴 | `origin`を既存Repositoryへ接続し、`main`、v0.12 Draft PR、v0.14統合Branchの関係を照合 |
 | Release CommitとRollback | `codex/intentir-v0.14`の統合CommitをLocalとGitHubへ保存し、公開対象とRollback点を固定 |
-| GitHub CI | PR #3のAilex、Python 3.11、Python 3.13、optional MCPの全Jobが成功 |
+| GitHub CI | PR #3のAilex、Container Demo、Python 3.11、Python 3.13、optional MCPの全5 Jobが成功 |
 | GitHub Security | Secret scanning、Push protection、Dependabot security updates、Private Vulnerability Reportingを有効化。Secret/Dependabotの未解決Alertは0件 |
-| `main`保護 | 4 CI、最新Base、会話解決、Linear historyを必須化。管理者にも適用し、Force pushと削除を禁止 |
+| `main`保護 | 5 CI、最新Base、会話解決、Linear historyを必須化。管理者にも適用し、Force pushと削除を禁止 |
 | 秘密候補のGit除外 | `.env`、秘密鍵、DB、Log、仮想環境などを`.gitignore`へ追加 |
 | 作業Treeの限定秘密Scan | 一般的なCloud/GitHub/OpenAI/Slack Tokenと秘密鍵の形式に一致するFileなし。秘密・Credentialを示すFile名もなし |
 | 依存固定 | `uv.lock`でMCPを含む32 Packageを固定し、`uv lock --check`成功 |
@@ -80,9 +80,9 @@
 | `python3 -m pip wheel . --no-deps` | wheel build成功 |
 | Wheel metadata / contents | `License-Expression: Apache-2.0`と`dist-info/licenses/LICENSE-APACHE`を確認 |
 | 隔離venvへのwheel導入 | `intentir --help`と`examples/todo.intent`のTestが成功 |
-| GitHub Actions | Ailex、Python 3.11、Python 3.13、optional MCPの全Job成功 |
+| GitHub Actions | Ailex、Container Demo、Python 3.11、Python 3.13、optional MCPの全5 Job成功 |
 | GitHub Security API | 中核Secret scanning、Push protection、Dependabot security updates、Private Vulnerability Reportingが有効。未解決Alert 0件 |
-| GitHub Branch Protection API | 4 CI、Strict更新、会話解決、Linear history、管理者適用を確認。Force pushと削除は無効 |
+| GitHub Branch Protection API | 5 CI、Strict更新、会話解決、Linear history、管理者適用を確認。Force pushと削除は無効 |
 | `cffconvert --validate` | Citation metadataはCFF 1.2.0 Schemaへ適合 |
 | Issue Form YAML parse | Bug、Feature、Configの3 Fileが成功 |
 | `docker build --pull -t intentir:0.14 .` | Digest固定ImageのBuild成功 |
