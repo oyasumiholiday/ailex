@@ -1,0 +1,16 @@
+diff --git a/workspace.intent b/workspace.intent
+--- a/workspace.intent
++++ b/workspace.intent
+@@ -13,6 +13,12 @@ action CreateWorkItem:
+   effects:
+     insert WorkItem
+
++action ArchiveWorkItem:
++  input:
++    id: UUID required
++  effects:
++    update WorkItem where id equals input.id set archived = true
++
+ test "creates work item":
+   when CreateWorkItem(id="item-1", title="first")
+   expect WorkItem exists with title "first"

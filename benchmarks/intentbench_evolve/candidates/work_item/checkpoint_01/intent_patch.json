@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "0.13.0",
+  "baseModuleId": "sha256:5f997ab661f98087e1b126853af0968a0bd1a0ea7a9a90f745f450c23c7ccc3b",
+  "operations": [
+    {
+      "kind": "insert_member",
+      "target": "entity:WorkItem",
+      "expectedId": "sha256:8926a38f1f9f6fd7297246e2988efaec169d8f9df7f55f7f00a3a495dc6bc430",
+      "member": "fields",
+      "value": {
+        "name": "priority",
+        "type": "Integer",
+        "default": 0
+      }
+    }
+  ],
+  "requestedObligations": [
+    "static",
+    "affected-tests"
+  ]
+}

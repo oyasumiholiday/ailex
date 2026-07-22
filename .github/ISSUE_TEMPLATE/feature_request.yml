@@ -1,0 +1,53 @@
+name: Feature request
+description: Propose a scoped language, runtime, tool, or research improvement
+title: "[Feature] "
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Ailex surface language
+        - IntentIR semantics or compiler
+        - Agent or MCP interface
+        - Benchmark or demonstration
+        - Packaging, CI, or documentation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the concrete workflow, failure mode, or research question this proposal addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the smallest useful semantic or interface change.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and evaluation
+      description: State what examples, measurements, baselines, or tests would support or falsify the proposal.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and security impact
+      description: Cover syntax, stored data, generated code, Agent authority, external services, and migration concerns where applicable.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing Issues, Pull Requests, and roadmap documents for this proposal.
+          required: true
+        - label: I have not included secrets, private data, or hidden evaluation tests.
+          required: true

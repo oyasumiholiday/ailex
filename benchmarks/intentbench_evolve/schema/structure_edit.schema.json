@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentir.dev/schemas/intentbench-evolve/structure-edit-0.1.0.json",
+  "title": "IntentBench-Evolve Structure Edit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operations"],
+  "properties": {
+    "schemaVersion": {
+      "const": "0.1.0"
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "add_definition",
+              "replace_definition",
+              "remove_definition",
+              "rename_symbol",
+              "set_member",
+              "insert_member",
+              "remove_member"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "member": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {},
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

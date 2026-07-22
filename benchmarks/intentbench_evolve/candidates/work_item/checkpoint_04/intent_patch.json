@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "0.13.0",
+  "baseModuleId": "sha256:4730761682c383942008cec44c9868534650f6b12b6ac3284f1f704bd8a5656b",
+  "operations": [
+    {
+      "kind": "add_definition",
+      "target": "action:ArchiveWorkItem",
+      "value": {
+        "source": "action ArchiveWorkItem:\n  input:\n    id: UUID required\n  effects:\n    update WorkItem where id equals input.id set archived = true"
+      }
+    }
+  ],
+  "requestedObligations": ["static", "affected-tests"]
+}

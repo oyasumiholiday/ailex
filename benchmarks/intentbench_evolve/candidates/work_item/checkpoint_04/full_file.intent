@@ -1,0 +1,26 @@
+module ConcurrentAgentDemo
+
+entity WorkItem:
+  id: UUID required key
+  title: Text required
+  status: Text default "open"
+  priority: Integer default 0
+  owner: Text default "unassigned"
+  archived: Boolean default false
+
+action CreateWorkItem:
+  input:
+    id: UUID required
+    title: Text required
+  effects:
+    insert WorkItem
+
+action ArchiveWorkItem:
+  input:
+    id: UUID required
+  effects:
+    update WorkItem where id equals input.id set archived = true
+
+test "creates work item":
+  when CreateWorkItem(id="item-1", title="first")
+  expect WorkItem exists with title "first"

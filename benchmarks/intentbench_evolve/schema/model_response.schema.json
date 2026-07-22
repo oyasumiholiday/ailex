@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentir.dev/schemas/intentbench-evolve/model-response-0.1.0.json",
+  "title": "IntentBench-Evolve Model Adapter Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "requestId", "model", "candidate", "usage"],
+  "properties": {
+    "schemaVersion": {"const": "0.1.0"},
+    "requestId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "model": {"type": "string", "minLength": 1},
+    "candidate": {"type": "string", "minLength": 1, "maxLength": 1000000},
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputTokens", "outputTokens"],
+      "properties": {
+        "inputTokens": {"type": ["integer", "null"], "minimum": 0},
+        "outputTokens": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "responseId",
+        "requestedModel",
+        "promptId",
+        "configurationId",
+        "reasoningEffort",
+        "maxOutputTokens"
+      ],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "responseId": {"type": "string", "minLength": 1},
+        "requestedModel": {"type": "string", "minLength": 1},
+        "promptId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "configurationId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "reasoningEffort": {"type": ["string", "null"]},
+        "maxOutputTokens": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

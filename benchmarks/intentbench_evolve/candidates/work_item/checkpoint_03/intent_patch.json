@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "0.13.0",
+  "baseModuleId": "sha256:b86ead8b051c645587b7ac436ca8c8f5f0ff3bf8fd95c67e196900a68aa14c3f",
+  "operations": [
+    {
+      "kind": "insert_member",
+      "target": "entity:WorkItem",
+      "expectedId": "sha256:5905c7f5e67f42c5d690592fdc5401bc0f329227e873da5049d3671ddd1022ce",
+      "member": "fields",
+      "value": {
+        "name": "archived",
+        "type": "Boolean",
+        "default": false
+      }
+    }
+  ],
+  "requestedObligations": ["static", "affected-tests"]
+}

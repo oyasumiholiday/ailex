@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentir.dev/schemas/intentbench-evolve/result-0.1.0.json",
+  "title": "IntentBench-Evolve Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "schemaVersion",
+    "mode",
+    "suite",
+    "description",
+    "conditions",
+    "summary",
+    "runs"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "schemaVersion": {
+      "const": "0.1.0"
+    },
+    "mode": {
+      "const": "independent"
+    },
+    "suite": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "tasks",
+        "runs",
+        "passed",
+        "failed",
+        "failuresByCode",
+        "byCondition"
+      ],
+      "properties": {
+        "tasks": {"type": "integer", "minimum": 0},
+        "runs": {"type": "integer", "minimum": 0},
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "failuresByCode": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        },
+        "byCondition": {"type": "object"}
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    }
+  },
+  "$defs": {
+    "run": {
+      "type": "object",
+      "required": [
+        "ok",
+        "taskId",
+        "application",
+        "checkpoint",
+        "condition",
+        "candidateSha256",
+        "metrics",
+        "diagnostics"
+      ],
+      "properties": {
+        "ok": {"type": "boolean"},
+        "taskId": {"type": "string"},
+        "application": {"type": "string"},
+        "checkpoint": {"type": "integer", "minimum": 1},
+        "condition": {"type": "string"},
+        "candidateSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "metrics": {"type": "object"},
+        "diagnostics": {"type": "array"},
+        "resultModuleId": {"type": "string"},
+        "changedSymbols": {"type": "array", "items": {"type": "string"}},
+        "expectedChangedSymbols": {"type": "array", "items": {"type": "string"}},
+        "unexpectedChangedSymbols": {"type": "array", "items": {"type": "string"}},
+        "baselineTestsPreserved": {"type": "boolean"},
+        "applicationResult": {"type": "object"},
+        "verification": {"type": "object"},
+        "failure": {
+          "type": "object",
+          "required": ["stage", "codes"],
+          "properties": {
+            "stage": {"type": "string"},
+            "codes": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      }
+    }
+  }
+}

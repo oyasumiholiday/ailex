@@ -1,0 +1,4 @@
+test "work item can be archived":
+  when CreateWorkItem(id="archive-hidden", title="archive")
+  when ArchiveWorkItem(id="archive-hidden")
+  expect WorkItem exists with archived true

@@ -1,0 +1,3 @@
+test "owner defaults to unassigned":
+  when CreateWorkItem(id="owner-hidden", title="owner")
+  expect WorkItem exists with owner "unassigned"

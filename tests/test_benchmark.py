@@ -1,0 +1,136 @@
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from intentir.benchmark import BenchmarkError, run_benchmark_manifest
+
+
+class IntentBenchEvolveTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.root = Path(__file__).resolve().parents[1]
+        cls.suite = cls.root / "benchmarks" / "intentbench_evolve"
+        cls.manifest = cls.suite / "smoke_manifest.json"
+
+    def test_smoke_suite_passes_all_conditions_deterministically(self) -> None:
+        first = run_benchmark_manifest(self.manifest)
+        second = run_benchmark_manifest(self.manifest)
+
+        self.assertEqual(first, second)
+        self.assertTrue(first["ok"])
+        self.assertEqual(first["summary"]["runs"], 4)
+        self.assertEqual(first["summary"]["passed"], 4)
+        self.assertEqual(
+            {run["condition"] for run in first["runs"]},
+            {"full-file", "unified-diff", "structure-edit", "intent-patch"},
+        )
+        self.assertEqual(len({run["resultModuleId"] for run in first["runs"]}), 1)
+        for run in first["runs"]:
+            self.assertEqual(run["changedSymbols"], ["entity:WorkItem"])
+            self.assertEqual(run["verification"]["hiddenTests"], 1)
+            self.assertEqual(run["verification"]["summary"]["failed"], 0)
+            self.assertNotIn("elapsedMs", run["metrics"])
+
+    def test_cli_can_select_one_condition(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "intentir",
+                "benchmark",
+                str(self.manifest),
+                "--condition",
+                "intent-patch",
+                "--json",
+            ],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["conditions"], ["intent-patch"])
+        self.assertEqual(result["summary"]["runs"], 1)
+
+    def test_manifest_rejects_references_outside_suite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "outside.intent"
+            outside.write_text("module Outside\n", encoding="utf-8")
+            suite = root / "suite"
+            suite.mkdir()
+            manifest = suite / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": "0.1.0",
+                        "suite": "unsafe",
+                        "description": "path boundary test",
+                        "conditions": ["full-file"],
+                        "tasks": [
+                            {
+                                "id": "escape",
+                                "application": "unsafe",
+                                "checkpoint": 1,
+                                "instruction": "escape the suite",
+                                "baseSource": "../outside.intent",
+                                "hiddenTests": "hidden.intent",
+                                "expectedChangedSymbols": [],
+                                "candidates": {"full-file": "candidate.intent"},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(BenchmarkError) as context:
+                run_benchmark_manifest(manifest)
+            self.assertEqual(context.exception.code, "benchmark_path_outside_suite")
+
+    def test_unified_diff_cannot_target_another_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            copied = Path(directory) / "suite"
+            shutil.copytree(self.suite, copied)
+            diff = (
+                copied
+                / "candidates"
+                / "work_item"
+                / "checkpoint_01"
+                / "unified.diff"
+            )
+            diff.write_text(
+                "diff --git a/workspace.intent b/../outside.intent\n"
+                "--- a/workspace.intent\n"
+                "+++ b/../outside.intent\n"
+                "@@ -1 +1 @@\n"
+                "-module ConcurrentAgentDemo\n"
+                "+module Escaped\n",
+                encoding="utf-8",
+            )
+            result = run_benchmark_manifest(
+                copied / "smoke_manifest.json",
+                conditions=["unified-diff"],
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["summary"]["failed"], 1)
+            self.assertEqual(
+                result["summary"]["failuresByCode"],
+                {"unsafe_unified_diff": 1},
+            )
+            self.assertEqual(result["runs"][0]["failure"]["stage"], "candidate")
+            self.assertEqual(
+                result["runs"][0]["diagnostics"][0]["code"],
+                "unsafe_unified_diff",
+            )
+            self.assertFalse((Path(directory) / "outside.intent").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
