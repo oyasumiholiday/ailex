@@ -125,7 +125,7 @@ python3 -m compileall -q intentir tests
 - Root外Path拒否、Context/Impact、Agent CLI、Patch dry-run/apply/stale拒否を確認
 - IR/TypeScript/SQLiteの3 Build Targetを確認
 
-MCP SDKが未導入の通常環境ではMCP専用TestだけがSkipされ、残り90件は成功します。
+MCP SDKが未導入の通常環境ではMCP専用TestだけがSkipされ、残り91件は成功します。
 
 ## 現在の制約
 

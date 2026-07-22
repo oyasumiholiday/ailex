@@ -29,6 +29,8 @@ Wall-clock measurements are excluded by default so JSON output remains determini
 
 Machine-readable contracts are available for the independent [manifest](schema/manifest.schema.json) and [result](schema/result.schema.json), [structure edit](schema/structure_edit.schema.json), trajectory [manifest](schema/trajectory_manifest.schema.json) and [result](schema/trajectory_result.schema.json), and model [request](schema/model_request.schema.json) and [response](schema/model_response.schema.json). Runtime validation additionally enforces that candidate keys match the selected conditions and that resolved files remain inside the suite directory.
 
+The paid pilot configuration has its own machine-readable [protocol schema](schema/pilot_protocol.schema.json). The checked-in protocol uses a date-pinned model snapshot and records the pricing observation date instead of silently following a moving alias.
+
 The trajectory suite carries each condition's successful source into the next checkpoint and accumulates all prior evaluation tests. It currently contains one handcrafted application with four checkpoints, producing 16 fixture runs.
 
 ## External model adapter
@@ -69,6 +71,18 @@ python3 -m intentir benchmark-model \
   --json
 ```
 
-It asks the Responses API for a strict `{candidate: string}` Structured Output with `store: false`. The benchmark result records only the returned candidate, usage, response/model identifiers, and content-addressed prompt/configuration provenance. Provider bodies, credentials, and evaluation tests are not copied into diagnostics. Current automated coverage uses fake provider responses and does not spend API credits.
+It asks the Responses API for a strict `{candidate: string}` Structured Output with `store: false`. The ordinary benchmark result records the candidate hash, usage, response/model identifiers, and content-addressed prompt/configuration provenance. Provider bodies, credentials, and evaluation tests are not copied into diagnostics. Current automated coverage uses fake provider responses and does not spend API credits.
+
+## Budget-guarded pilot
+
+The default `pilot` command is a network-free preflight:
+
+```sh
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_pilot_protocol.json \
+  --json
+```
+
+Paid execution additionally requires `--execute`, an exact `--confirm-budget-usd` match, `OPENAI_API_KEY`, and a new output directory. It archives the normalized protocol, every secret-free request/payload/response, candidates, token usage, accounted cost, trial result, and summary. No retry is performed after a provider or candidate failure. See [the Japanese pilot protocol](../../PILOT_EXPERIMENT_PROTOCOL_JA.md) before authorizing a paid run.
 
 Failed runs include a stable `failure.stage` plus diagnostic codes, and summaries aggregate them under `failuresByCode`. The current stages distinguish generation, stale preconditions, semantic scope, verification, and other candidate failures.

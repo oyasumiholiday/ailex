@@ -288,13 +288,23 @@ python3 -m intentir benchmark-model \
   --condition intent-patch \
   --adapter-command intentir-openai-adapter \
   --adapter-arg=--model \
-  --adapter-arg=gpt-5-2025-08-07 \
+  --adapter-arg=gpt-5.4-mini-2026-03-17 \
   --adapter-arg=--reasoning-effort \
   --adapter-arg=low \
   --measure-time \
   --fail-on-run-failure \
   --json
 ```
+
+Before any paid run, use the checked-in budget-guarded preflight. It performs no provider request:
+
+```sh
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_pilot_protocol.json \
+  --json
+```
+
+The [Japanese pilot protocol](PILOT_EXPERIMENT_PROTOCOL_JA.md) fixes the model snapshot, prompt/configuration provenance, four conditions, maximum call count, pricing observation, USD 1.00 hard confirmation, stopping rules, and artifact layout. Paid execution has not been run yet.
 
 The wrapper uses Structured Outputs, disables response storage, and records the provider response ID, returned and requested model IDs, token usage, prompt/configuration hashes, reasoning effort, and output limit. It never writes the API key into the provider payload or benchmark result. The network call is intentionally not part of the dependency-free test suite; provider parsing and failure behavior are tested offline.
 

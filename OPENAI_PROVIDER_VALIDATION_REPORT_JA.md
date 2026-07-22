@@ -1,5 +1,7 @@
 # OpenAI Responses API Provider検証レポート
 
+> 2026-07-22追記: 日付固定Model、4編集条件、最大16 call、1.00 USD上限を持つ`intentir pilot`を追加しました。実行前検証とFake Providerによる全Call記録は確認済みですが、課金を伴う実API実行はまだ行っていません。条件と停止規則は [PILOT_EXPERIMENT_PROTOCOL_JA.md](PILOT_EXPERIMENT_PROTOCOL_JA.md) を参照してください。
+
 - 確認日: 2026-07-21
 - 対象: `intentir-openai-adapter`
 - Protocol: IntentBench-Evolve Model Adapter `0.1.0`
@@ -74,7 +76,7 @@ Fake Responses API応答を使い、次をNetwork・Credential・課金なしで
 - Adapter失敗が`generation`として集計されること
 - 評価Test MarkerがModel Requestへ含まれないこと
 
-Project全体では通常環境91 Test中90件成功、MCP専用1件のみSkip、MCP環境91 / 91件成功です。
+Project全体では通常環境92 Test中91件成功、MCP専用1件のみSkip、MCP環境92 / 92件成功です。
 
 ## 実Model Trial前の条件
 

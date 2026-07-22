@@ -202,7 +202,7 @@ Patchは内容ID、依存Edge、検証義務を直接編集しません。Defini
 
 ## Agent接続
 
-> 実装状況 2026-07-21: 以下の9 Toolを、依存なしのAgentService/CLIとoptionalな公式MCP Python SDK v1系stdio Serverとして実装済みです。Project Root境界、入力・出力Schema、構造化診断、実stdio接続、二Agent競合Demo、IntentBench-Evolveの4段階Trajectory、外部Model Adapter、OpenAI Responses API Wrapperを含む91件の自動テストで検証しています。次のGateはModel SnapshotとBudgetを固定した少額実API Pilot、その後の40 Checkpoint Pilotです。
+> 実装状況 2026-07-22: 以下の9 Toolを、依存なしのAgentService/CLIとoptionalな公式MCP Python SDK v1系stdio Serverとして実装済みです。Project RootとImport境界、入力・出力Schema、構造化診断、実stdio接続、二Agent競合Demo、IntentBench-Evolveの4段階Trajectory、外部Model Adapter、OpenAI Responses API Wrapperを含む92件の自動テストで検証しています。日付固定Model Snapshot、最大16 call、1.00 USD上限、逐次Artifact保存を持つ少額Pilot Protocolも準備済みです。次のGateは所有者承認後の実API Pilot、その後の40 Checkpoint Pilotです。
 
 MCPはTool、Resource、PromptなどをAgentへ公開し、Capability Discoveryを行う標準的な接続面を提供しています。IntentIR専用Agentを先に作るより、モデル非依存のMCP Serverを作るほうが採用障壁を下げられます。[MCP公式Architecture](https://modelcontextprotocol.io/docs/learn/architecture)
 

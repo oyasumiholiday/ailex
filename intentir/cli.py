@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -32,6 +33,7 @@ from intentir.migration import MigrationError, apply_migration, plan_migration
 from intentir.model_adapter import ExternalCommandModelAdapter, ModelAdapterError
 from intentir.patch import PatchError, patch_path
 from intentir.parser import ParseError
+from intentir.pilot import PilotError, preflight_pilot, render_pilot_result, run_pilot
 from intentir.reports import (
     generate_parse_error_report,
     generate_program_validation_report,
@@ -59,6 +61,7 @@ COMMANDS = {
     "demo",
     "benchmark",
     "benchmark-model",
+    "pilot",
     "build",
     "fmt",
     "report",
@@ -93,6 +96,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "demo": command_demo,
         "benchmark": command_benchmark,
         "benchmark-model": command_benchmark_model,
+        "pilot": command_pilot,
         "build": command_build,
         "fmt": command_fmt,
         "report": command_report,
@@ -235,6 +239,27 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_model.add_argument("--fail-on-run-failure", action="store_true")
     benchmark_model.add_argument("--json", action="store_true")
     benchmark_model.add_argument("-o", "--output", type=Path)
+
+    pilot = commands.add_parser(
+        "pilot",
+        help="preflight or execute a budget-guarded model pilot",
+    )
+    pilot.add_argument("protocol", type=Path)
+    pilot.add_argument(
+        "--execute",
+        action="store_true",
+        help="allow paid provider requests after all guards pass",
+    )
+    pilot.add_argument(
+        "--confirm-budget-usd",
+        help="must exactly match the protocol budgetUsd when executing",
+    )
+    pilot.add_argument(
+        "--output-dir",
+        type=Path,
+        help="new directory for requests, responses, results, and cost records",
+    )
+    pilot.add_argument("--json", action="store_true")
 
     build = commands.add_parser("build", help="compile a program")
     build.add_argument("source", type=Path)
@@ -600,6 +625,38 @@ def command_benchmark_model(args: argparse.Namespace) -> None:
     else:
         print(render_benchmark_output(result), end="")
     if args.fail_on_run_failure and result["summary"]["failed"]:
+        raise SystemExit(1)
+
+
+def command_pilot(args: argparse.Namespace) -> None:
+    try:
+        if args.execute:
+            if args.output_dir is None:
+                raise PilotError(
+                    "pilot_output_required",
+                    "--output-dir is required with --execute",
+                    "/outputDirectory",
+                )
+            result = run_pilot(
+                args.protocol,
+                args.output_dir,
+                confirm_budget_usd=args.confirm_budget_usd,
+                api_key=os.environ.get("OPENAI_API_KEY", ""),
+            )
+        else:
+            result = preflight_pilot(args.protocol)
+    except PilotError as error:
+        payload = {"ok": False, "diagnostics": [error.to_dict()]}
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(f"{error.path}: [{error.code}] {error.message}", file=sys.stderr)
+        raise SystemExit(1) from error
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(render_pilot_result(result), end="")
+    if not result["ok"]:
         raise SystemExit(1)
 
 
