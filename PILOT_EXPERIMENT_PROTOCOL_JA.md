@@ -1,5 +1,7 @@
 # IntentBench-Evolve 実モデル・パイロット実験計画
 
+実施結果: [OpenAI 実モデル・パイロット検証レポート](OPENAI_PILOT_RESULT_2026-07-22_JA.md)
+
 ## Material Passport
 
 - Schema: ARS Material Passport 9

@@ -304,7 +304,7 @@ python3 -m intentir pilot \
   --json
 ```
 
-The [Japanese pilot protocol](PILOT_EXPERIMENT_PROTOCOL_JA.md) fixes the model snapshot, prompt/configuration provenance, four conditions, maximum call count, pricing observation, USD 1.00 hard confirmation, stopping rules, and artifact layout. Paid execution has not been run yet.
+The [Japanese pilot protocol](PILOT_EXPERIMENT_PROTOCOL_JA.md) fixes the model snapshot, prompt/configuration provenance, four conditions, maximum call count, pricing observation, USD 1.00 hard confirmation, stopping rules, and artifact layout. The first paid calibration pilot is documented in the [Japanese result report](OPENAI_PILOT_RESULT_2026-07-22_JA.md): 7 provider calls, 3 of 7 checkpoints accepted, and USD 0.031191 accounted cost.
 
 The wrapper uses Structured Outputs, disables response storage, and records the provider response ID, returned and requested model IDs, token usage, prompt/configuration hashes, reasoning effort, and output limit. It never writes the API key into the provider payload or benchmark result. The network call is intentionally not part of the dependency-free test suite; provider parsing and failure behavior are tested offline.
 
