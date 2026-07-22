@@ -2,11 +2,18 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch as mock_patch
 
 from intentir.compiler import compile_source
-from intentir.patch import PatchError, plan_patch_source
+from intentir.patch import (
+    PatchError,
+    patch_path as apply_patch_path,
+    plan_patch_path,
+    plan_patch_source,
+)
 
 
 SOURCE = """
@@ -330,7 +337,62 @@ class PatchTest(unittest.TestCase):
             )
             self.assertEqual(applied.returncode, 0, applied.stderr)
             self.assertTrue(json.loads(applied.stdout)["applied"])
-            self.assertIn("priority: Integer default 0", source_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                "priority: Integer default 0",
+                source_path.read_text(encoding="utf-8"),
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            source_path = Path(directory) / "concurrent.intent"
+            source_path.write_text(SOURCE, encoding="utf-8")
+            concurrent_patch = envelope(
+                SOURCE,
+                [
+                    {
+                        "kind": "insert_member",
+                        "target": "entity:Item",
+                        "expectedId": node_id(SOURCE, "entity:Item"),
+                        "member": "fields",
+                        "value": {"source": "priority: Integer default 0"},
+                    }
+                ],
+            )
+            planning_barrier = threading.Barrier(2)
+            outcomes: list[dict | PatchError] = []
+
+            def synchronized_plan(path, patch, *, import_root=None):
+                plan = plan_patch_path(path, patch, import_root=import_root)
+                planning_barrier.wait(timeout=5)
+                return plan
+
+            def apply_concurrently() -> None:
+                try:
+                    outcomes.append(
+                        apply_patch_path(source_path, concurrent_patch, apply=True)
+                    )
+                except PatchError as error:
+                    outcomes.append(error)
+
+            with mock_patch(
+                "intentir.patch.plan_patch_path",
+                side_effect=synchronized_plan,
+            ):
+                workers = [
+                    threading.Thread(target=apply_concurrently),
+                    threading.Thread(target=apply_concurrently),
+                ]
+                for worker in workers:
+                    worker.start()
+                for worker in workers:
+                    worker.join(timeout=10)
+
+            self.assertTrue(all(not worker.is_alive() for worker in workers))
+            self.assertEqual(sum(isinstance(item, dict) for item in outcomes), 1)
+            rejected = next(item for item in outcomes if isinstance(item, PatchError))
+            self.assertEqual(
+                rejected.diagnostics[0].code,
+                "concurrent_source_change",
+            )
 
 
 if __name__ == "__main__":

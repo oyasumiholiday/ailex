@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from intentir.canonical import content_address
 from intentir.compiler import compile_path, compile_path_source, compile_source
@@ -103,7 +105,12 @@ def plan_patch_source(
     )
 
 
-def plan_patch_path(path: Path | str, envelope: Any) -> PatchPlan:
+def plan_patch_path(
+    path: Path | str,
+    envelope: Any,
+    *,
+    import_root: Path | str | None = None,
+) -> PatchPlan:
     source_path = Path(path).expanduser().resolve()
     try:
         source = source_path.read_text(encoding="utf-8")
@@ -115,13 +122,17 @@ def plan_patch_path(path: Path | str, envelope: Any) -> PatchPlan:
             "/source",
         )
     root = parse_source(source)
-    current_ir = compile_path(source_path)
+    current_ir = compile_path(source_path, import_root=import_root)
     return _plan_patch(
         root,
         source,
         current_ir,
         envelope,
-        lambda candidate: compile_path_source(source_path, candidate),
+        lambda candidate: compile_path_source(
+            source_path,
+            candidate,
+            import_root=import_root,
+        ),
         str(source_path),
     )
 
@@ -131,28 +142,30 @@ def patch_path(
     envelope: Any,
     *,
     apply: bool = False,
+    import_root: Path | str | None = None,
 ) -> dict[str, Any]:
     source_path = Path(path).expanduser().resolve()
-    plan = plan_patch_path(source_path, envelope)
+    plan = plan_patch_path(source_path, envelope, import_root=import_root)
     if apply:
-        try:
-            current_source = source_path.read_text(encoding="utf-8")
-        except OSError as error:
-            fail(
-                "patch_source_read_error",
-                f"cannot re-read patch target {source_path}: {error}",
-                f"書込み前にPatch対象 `{source_path}` を再読込できません: {error}",
-                "/source",
-            )
-        if current_source != plan.original_source:
-            fail(
-                "concurrent_source_change",
-                "source changed after the patch was validated",
-                "Patch検証後にSourceが変更されたため、書込みを中止しました。",
-                "/source",
-                hint="最新SourceのModule IDを取得してPatchを再生成してください。",
-            )
-        atomic_write_text(source_path, plan.source)
+        with exclusive_patch_lock(source_path):
+            try:
+                current_source = source_path.read_text(encoding="utf-8")
+            except OSError as error:
+                fail(
+                    "patch_source_read_error",
+                    f"cannot re-read patch target {source_path}: {error}",
+                    f"書込み前にPatch対象 `{source_path}` を再読込できません: {error}",
+                    "/source",
+                )
+            if current_source != plan.original_source:
+                fail(
+                    "concurrent_source_change",
+                    "source changed after the patch was validated",
+                    "Patch検証後にSourceが変更されたため、書込みを中止しました。",
+                    "/source",
+                    hint="最新SourceのModule IDを取得してPatchを再生成してください。",
+                )
+            atomic_write_text(source_path, plan.source)
     return {**plan.result, "applied": apply}
 
 
@@ -1061,6 +1074,38 @@ def remove_definition(program: ProgramSpec, symbol: str) -> ProgramSpec:
         item for item in getattr(program, attribute) if definition_symbol(item) != symbol
     ]
     return replace(program, **{attribute: items})
+
+
+@contextmanager
+def exclusive_patch_lock(path: Path) -> Iterator[None]:
+    lock_digest = hashlib.sha256(str(path).encode("utf-8")).hexdigest()
+    user_id = str(os.getuid()) if hasattr(os, "getuid") else "default"
+    lock_root = Path(tempfile.gettempdir()) / f"intentir-locks-{user_id}"
+    lock_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = lock_root / f"{lock_digest}.lock"
+    with lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def atomic_write_text(path: Path, content: str) -> None:

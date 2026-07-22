@@ -27,21 +27,49 @@ def compile_source(source: str) -> dict:
     return build_ir(program)
 
 
-def compile_path(path: Path | str) -> dict:
-    program = load_program(path)
+def compile_path(
+    path: Path | str,
+    *,
+    import_root: Path | str | None = None,
+) -> dict:
+    program = load_program(path, import_root=import_root)
     validate_program(program)
     return build_ir(program)
 
 
-def compile_path_source(path: Path | str, source: str) -> dict:
+def compile_path_source(
+    path: Path | str,
+    source: str,
+    *,
+    import_root: Path | str | None = None,
+) -> dict:
     """Compile an in-memory replacement for the root file with normal imports."""
-    program = load_program(path, root_source=source)
+    program = load_program(path, root_source=source, import_root=import_root)
     validate_program(program)
     return build_ir(program)
 
 
-def load_program(path: Path | str, *, root_source: str | None = None) -> ProgramSpec:
+def load_program(
+    path: Path | str,
+    *,
+    root_source: str | None = None,
+    import_root: Path | str | None = None,
+) -> ProgramSpec:
     root_path = Path(path).expanduser().resolve()
+    resolved_import_root = (
+        Path(import_root).expanduser().resolve()
+        if import_root is not None
+        else None
+    )
+    if resolved_import_root is not None:
+        try:
+            root_path.relative_to(resolved_import_root)
+        except ValueError as error:
+            raise ImportResolutionError(
+                "source_outside_import_root",
+                f"source {root_path} is outside import root {resolved_import_root}",
+                "/",
+            ) from error
     programs: dict[Path, ProgramSpec] = {}
     module_paths: dict[str, Path] = {}
     resolved_imports: dict[Path, list[str]] = {}
@@ -110,6 +138,16 @@ def load_program(path: Path | str, *, root_source: str | None = None) -> Program
                     f"/modules/{program.module}/imports",
                 )
             target = (resolved.parent / import_path).resolve()
+            if resolved_import_root is not None:
+                try:
+                    target.relative_to(resolved_import_root)
+                except ValueError as error:
+                    raise ImportResolutionError(
+                        "import_outside_root",
+                        f"module {program.module} import leaves the configured root: "
+                        f"{import_spec.path}",
+                        f"/modules/{program.module}/imports",
+                    ) from error
             if target in imported_paths:
                 raise ImportResolutionError(
                     "duplicate_import",

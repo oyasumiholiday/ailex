@@ -182,6 +182,24 @@ class AgentServiceTest(unittest.TestCase):
             outside["diagnostics"][0]["code"], "source_outside_project_root"
         )
 
+        bounded_root = self.root / "bounded"
+        bounded_root.mkdir()
+        (self.root / "outside.intent").write_text(
+            "module Outside\n\nentity Secret:\n  id: UUID required key\n",
+            encoding="utf-8",
+        )
+        (bounded_root / "entry.intent").write_text(
+            'module Entry\n\nimport "../outside.intent"\n',
+            encoding="utf-8",
+        )
+        imported_outside = AgentService(bounded_root).invoke(
+            "intentir.describe_module", {"source": "entry.intent"}
+        )
+        self.assertFalse(imported_outside["ok"])
+        self.assertEqual(
+            imported_outside["diagnostics"][0]["code"], "import_outside_root"
+        )
+
         unknown = self.service.invoke("intentir.unknown", {})
         self.assertFalse(unknown["ok"])
         self.assertEqual(unknown["diagnostics"][0]["code"], "unknown_agent_tool")

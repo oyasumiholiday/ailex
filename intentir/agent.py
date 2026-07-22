@@ -371,7 +371,7 @@ class AgentService:
 
     def validate_patch(self, source: str, patch: dict[str, Any]) -> AgentToolResult:
         source_path = self._source_path(source)
-        plan = plan_patch_path(source_path, patch)
+        plan = plan_patch_path(source_path, patch, import_root=self.root)
         return {
             **plan.result,
             "source": self._relative(source_path),
@@ -389,7 +389,12 @@ class AgentService:
             )
         source_path = self._source_path(source)
         return {
-            **patch_path(source_path, patch, apply=True),
+            **patch_path(
+                source_path,
+                patch,
+                apply=True,
+                import_root=self.root,
+            ),
             "source": self._relative(source_path),
         }
 
@@ -421,7 +426,7 @@ class AgentService:
 
     def render_diff(self, source: str, patch: dict[str, Any]) -> AgentToolResult:
         source_path = self._source_path(source)
-        plan = plan_patch_path(source_path, patch)
+        plan = plan_patch_path(source_path, patch, import_root=self.root)
         return {
             "ok": True,
             "source": self._relative(source_path),
@@ -471,7 +476,7 @@ class AgentService:
 
     def _compile(self, source: str) -> tuple[Path, dict[str, Any]]:
         source_path = self._source_path(source)
-        return source_path, compile_path(source_path)
+        return source_path, compile_path(source_path, import_root=self.root)
 
     def _source_path(self, source: str) -> Path:
         if not isinstance(source, str) or not source:
