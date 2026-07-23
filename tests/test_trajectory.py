@@ -96,7 +96,29 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
         self.assertNotIn("priority defaults to zero", serialized_request)
         self.assertIn(
             "expectedId",
-            request["outputContract"]["operations"]["insert_member"],
+            request["outputContract"]["candidate"]["operations"]["insert_member"],
+        )
+        self.assertEqual(
+            request["languageReference"]["syntax"]["updateEffect"],
+            (
+                "update <Entity> where <field> equals input.<field> "
+                "set <field> = <value>"
+            ),
+        )
+        candidate_contract = request["outputContract"]["candidate"]
+        self.assertEqual(
+            candidate_contract["allowedTopLevelFields"],
+            [
+                "schemaVersion",
+                "baseModuleId",
+                "operations",
+                "requestedObligations",
+            ],
+        )
+        self.assertNotIn("kind", candidate_contract["allowedTopLevelFields"])
+        self.assertNotIn(
+            "contentGuards",
+            candidate_contract["allowedTopLevelFields"],
         )
         adapter = ExternalCommandModelAdapter(
             [
@@ -122,6 +144,43 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
         self.assertEqual(
             result["summary"]["failuresByCode"],
             {"model_response_request_mismatch": 1},
+        )
+
+    def test_model_output_contracts_define_headers_and_target_references(self) -> None:
+        ir = compile_source(DEMO_SOURCE)
+
+        unified = build_model_request(
+            suite="adapter-test",
+            application="work-item",
+            checkpoint=1,
+            checkpoint_id="add-priority",
+            condition="unified-diff",
+            instruction="Add priority.",
+            source=DEMO_SOURCE,
+            ir=ir,
+        )["outputContract"]
+        self.assertEqual(
+            unified["candidate"]["requiredFileHeaders"],
+            ["--- a/workspace.intent", "+++ b/workspace.intent"],
+        )
+        self.assertEqual(
+            unified["candidate"]["optionalGitHeader"],
+            "diff --git a/workspace.intent b/workspace.intent",
+        )
+
+        structure = build_model_request(
+            suite="adapter-test",
+            application="work-item",
+            checkpoint=1,
+            checkpoint_id="add-priority",
+            condition="structure-edit",
+            instruction="Add priority.",
+            source=DEMO_SOURCE,
+            ir=ir,
+        )["outputContract"]
+        self.assertEqual(
+            structure["candidate"]["targetReferences"]["existingDefinition"],
+            ["context.nodes[].symbol", "context.nodes[].id"],
         )
 
 

@@ -418,7 +418,11 @@ def _structure_edit_envelope(
             "structure edit operations must be a non-empty array",
             "/candidate/operations",
         )
-    nodes = {node["symbol"]: node for node in base_ir["nodes"]}
+    nodes = {
+        reference: node
+        for node in base_ir["nodes"]
+        for reference in (node["symbol"], node["id"])
+    }
     normalized = []
     for index, operation in enumerate(operations):
         path = f"/candidate/operations/{index}"
@@ -447,6 +451,7 @@ def _structure_edit_envelope(
                     f"unknown structure edit target: {target}",
                     f"{path}/target",
                 )
+            item["target"] = node["symbol"]
             item["expectedId"] = node["id"]
         normalized.append(item)
     return {
@@ -478,7 +483,11 @@ def _apply_unified_diff(base_source: str, diff: str) -> str:
                 "benchmark diff may only modify workspace.intent",
                 "/candidate",
             )
-    if git_headers != ["diff --git a/workspace.intent b/workspace.intent"] or headers != [
+    allowed_git_headers = (
+        [],
+        ["diff --git a/workspace.intent b/workspace.intent"],
+    )
+    if git_headers not in allowed_git_headers or headers != [
         "--- a/workspace.intent",
         "+++ b/workspace.intent",
     ]:

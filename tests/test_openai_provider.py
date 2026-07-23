@@ -45,6 +45,15 @@ class OpenAIResponsesProviderTest(unittest.TestCase):
             CANDIDATE_RESPONSE_SCHEMA,
         )
         self.assertEqual(payload["reasoning"], {"effort": "low"})
+        model_input = json.loads(payload["input"])
+        self.assertEqual(
+            model_input["languageReference"]["id"],
+            "intentir-benchmark-subset-0.1.0",
+        )
+        self.assertEqual(
+            model_input["outputContract"]["interface"],
+            "intent-patch",
+        )
         self.assertTrue(prompt_id.startswith("sha256:"))
         self.assertTrue(configuration_id.startswith("sha256:"))
         changed_config = OpenAIResponsesConfig(

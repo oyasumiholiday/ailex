@@ -20,7 +20,7 @@ from intentir.model_adapter import (
 
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-PROMPT_VERSION = "intentir-openai-responses-v1"
+PROMPT_VERSION = "intentir-openai-responses-v2"
 MAX_PROVIDER_REQUEST_BYTES = 4_000_000
 MAX_PROVIDER_RESPONSE_BYTES = 4_000_000
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
@@ -28,7 +28,11 @@ REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
 DEVELOPER_INSTRUCTIONS = """You generate exactly one candidate for an IntentBench-Evolve checkpoint.
 Use only the visible instruction, current source, content-addressed context, and output contract in the input.
 Do not explain the answer and do not use Markdown fences.
-Place the complete candidate text in the candidate field. The candidate must follow the selected output contract exactly."""
+Follow languageReference exactly and do not invent syntax.
+outputContract.interface describes the editing interface; it is not a candidate field.
+For a JSON candidate, emit only outputContract.candidate.allowedTopLevelFields.
+Follow outputContract.candidate.targetReferences when an operation has a target.
+Place the complete candidate text in the candidate field. The candidate must follow outputContract.candidate exactly."""
 
 CANDIDATE_RESPONSE_SCHEMA = {
     "type": "object",
@@ -187,6 +191,7 @@ def build_api_payload(
             "instruction": request["instruction"],
             "currentSource": request["source"],
             "context": request["context"],
+            "languageReference": request["languageReference"],
             "outputContract": request["outputContract"],
         },
         ensure_ascii=False,

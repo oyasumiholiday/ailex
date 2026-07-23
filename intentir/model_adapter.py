@@ -11,6 +11,7 @@ from intentir.patch import OPERATION_FIELDS, PATCH_KINDS
 
 
 MODEL_ADAPTER_SCHEMA_VERSION = "0.1.0"
+LANGUAGE_REFERENCE_VERSION = "intentir-benchmark-subset-0.1.0"
 REQUEST_FIELDS = {
     "schemaVersion",
     "requestId",
@@ -22,6 +23,7 @@ REQUEST_FIELDS = {
     "instruction",
     "source",
     "context",
+    "languageReference",
     "outputContract",
 }
 RESPONSE_FIELDS = {
@@ -57,6 +59,35 @@ class ModelAdapterError(RuntimeError):
 
 class ModelAdapter(Protocol):
     def generate(self, request: dict[str, Any]) -> dict[str, Any]: ...
+
+
+def language_reference() -> dict[str, Any]:
+    return {
+        "id": LANGUAGE_REFERENCE_VERSION,
+        "syntax": {
+            "entityField": (
+                "<field>: <Type> [required] [key] [default <literal>]"
+            ),
+            "action": (
+                "action <Name>:\n"
+                "  input:\n"
+                "    <field>: <Type> required\n"
+                "  effects:\n"
+                "    <effect>"
+            ),
+            "insertEffect": "insert <Entity>",
+            "updateEffect": (
+                "update <Entity> where <field> equals input.<field> "
+                "set <field> = <value>"
+            ),
+        },
+        "rules": [
+            "Indentation is significant.",
+            "Use equals, not =, in an update where clause.",
+            "Refer to an action input as input.<field>.",
+            "Write one update effect on one line.",
+        ],
+    }
 
 
 @dataclass(frozen=True)
@@ -187,6 +218,7 @@ def build_model_request(
                 key=lambda item: item["symbol"],
             ),
         },
+        "languageReference": language_reference(),
         "outputContract": output_contract(condition),
     }
     request_id = content_address({"kind": "model_adapter_request", **payload})
@@ -200,35 +232,90 @@ def build_model_request(
 def output_contract(condition: str) -> dict[str, Any]:
     if condition == "full-file":
         return {
-            "kind": condition,
-            "response": "complete IntentIR source text",
+            "interface": condition,
+            "candidate": {
+                "encoding": "complete IntentIR source text",
+                "completeSource": True,
+                "markdownFences": False,
+            },
         }
     if condition == "unified-diff":
         return {
-            "kind": condition,
-            "response": "Git unified diff",
-            "fromPath": "a/workspace.intent",
-            "toPath": "b/workspace.intent",
+            "interface": condition,
+            "candidate": {
+                "encoding": "UTF-8 unified diff",
+                "requiredFileHeaders": [
+                    "--- a/workspace.intent",
+                    "+++ b/workspace.intent",
+                ],
+                "optionalGitHeader": (
+                    "diff --git a/workspace.intent b/workspace.intent"
+                ),
+                "allowedPaths": [
+                    "a/workspace.intent",
+                    "b/workspace.intent",
+                ],
+                "markdownFences": False,
+            },
         }
     if condition == "structure-edit":
         return {
-            "kind": condition,
-            "schemaVersion": "0.1.0",
-            "contentGuards": False,
-            "operations": {
-                kind: sorted(OPERATION_FIELDS[kind] - {"expectedId"})
-                for kind in sorted(PATCH_KINDS)
+            "interface": condition,
+            "candidate": {
+                "encoding": "JSON object",
+                "allowedTopLevelFields": ["schemaVersion", "operations"],
+                "requiredTopLevelFields": ["schemaVersion", "operations"],
+                "schemaVersion": "0.1.0",
+                "targetReferences": {
+                    "existingDefinition": [
+                        "context.nodes[].symbol",
+                        "context.nodes[].id",
+                    ],
+                    "newDefinition": "<definition-kind>:<name>",
+                },
+                "operations": {
+                    kind: sorted(OPERATION_FIELDS[kind] - {"expectedId"})
+                    for kind in sorted(PATCH_KINDS)
+                },
             },
         }
     return {
-        "kind": "intent-patch",
-        "schemaVersion": "0.13.0",
-        "contentGuards": True,
-        "required": ["baseModuleId", "operations", "requestedObligations"],
-        "operations": {
-            kind: sorted(OPERATION_FIELDS[kind]) for kind in sorted(PATCH_KINDS)
+        "interface": "intent-patch",
+        "candidate": {
+            "encoding": "JSON object",
+            "allowedTopLevelFields": [
+                "schemaVersion",
+                "baseModuleId",
+                "operations",
+                "requestedObligations",
+            ],
+            "requiredTopLevelFields": [
+                "schemaVersion",
+                "baseModuleId",
+                "operations",
+                "requestedObligations",
+            ],
+            "schemaVersion": "0.13.0",
+            "baseModuleId": "copy context.moduleId exactly",
+            "targetReferences": {
+                "target": (
+                    "use context.nodes[].symbol for an existing definition; "
+                    "use <definition-kind>:<name> for add_definition"
+                ),
+                "expectedId": (
+                    "copy the matching context.nodes[].id for an existing target"
+                ),
+            },
+            "operations": {
+                kind: sorted(OPERATION_FIELDS[kind])
+                for kind in sorted(PATCH_KINDS)
+            },
+            "requestedObligations": [
+                "static",
+                "affected-tests",
+                "all-tests",
+            ],
         },
-        "requestedObligations": ["static", "affected-tests", "all-tests"],
     }
 
 
@@ -279,13 +366,40 @@ def validate_model_request(request: Any) -> None:
             "model checkpoint must be a positive integer",
             "/checkpoint",
         )
-    if not isinstance(request.get("context"), dict) or not isinstance(
-        request.get("outputContract"), dict
+    if (
+        not isinstance(request.get("context"), dict)
+        or not isinstance(request.get("languageReference"), dict)
+        or not isinstance(request.get("outputContract"), dict)
     ):
         raise ModelAdapterError(
             "invalid_model_request_context",
-            "model request context and outputContract must be objects",
+            (
+                "model request context, languageReference, and "
+                "outputContract must be objects"
+            ),
             "/context",
+        )
+    reference = request["languageReference"]
+    if (
+        reference.get("id") != LANGUAGE_REFERENCE_VERSION
+        or not isinstance(reference.get("syntax"), dict)
+        or not isinstance(reference.get("rules"), list)
+        or not all(isinstance(rule, str) and rule for rule in reference["rules"])
+    ):
+        raise ModelAdapterError(
+            "invalid_model_language_reference",
+            "model request languageReference is invalid",
+            "/languageReference",
+        )
+    contract = request["outputContract"]
+    if (
+        contract.get("interface") != request["condition"]
+        or not isinstance(contract.get("candidate"), dict)
+    ):
+        raise ModelAdapterError(
+            "invalid_model_output_contract",
+            "model outputContract must match condition and define candidate",
+            "/outputContract",
         )
 
 

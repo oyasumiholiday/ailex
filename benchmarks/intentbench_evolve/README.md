@@ -45,7 +45,7 @@ python3 -m intentir benchmark-model \
   --json
 ```
 
-The wrapper receives one [model request](schema/model_request.schema.json) as JSON on stdin and must emit one [model response](schema/model_response.schema.json) on stdout. Requests include the current source, instruction, Module/Node IDs, and condition-specific output contract. They never include evaluation-test text. Responses echo the content-addressed `requestId`, identify the model, return the candidate as a string, and report provider token usage when available.
+The wrapper receives one [model request](schema/model_request.schema.json) as JSON on stdin and must emit one [model response](schema/model_response.schema.json) on stdout. Requests include the current source, instruction, Module/Node IDs, a minimal versioned IntentIR syntax reference, and a condition-specific output contract. Output contracts separate interface metadata from the exact candidate shape, list legal JSON fields, and define target-reference semantics. They never include evaluation-test text. Responses echo the content-addressed `requestId`, identify the model, return the candidate as a string, and report provider token usage when available.
 
 Candidate paths are optional in a trajectory manifest used with `benchmark-model`; they remain mandatory for fixture execution through `benchmark`. The included `model_trajectory_manifest.json` is therefore ready for a provider wrapper without carrying handcrafted answers.
 
@@ -75,11 +75,15 @@ It asks the Responses API for a strict `{candidate: string}` Structured Output w
 
 ## Budget-guarded pilot
 
-The default `pilot` command is a network-free preflight:
+The default `pilot` command is a network-free preflight. Use the original protocol to reproduce the first pilot, or the separately identified v2 protocol for the post-pilot contract calibration:
 
 ```sh
 python3 -m intentir pilot \
   benchmarks/intentbench_evolve/openai_pilot_protocol.json \
+  --json
+
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_calibration_v2_protocol.json \
   --json
 ```
 

@@ -76,7 +76,7 @@ Fake Responses API応答を使い、次をNetwork・Credential・課金なしで
 - Adapter失敗が`generation`として集計されること
 - 評価Test MarkerがModel Requestへ含まれないこと
 
-Project全体では通常環境92 Test中91件成功、MCP専用1件のみSkip、MCP環境92 / 92件成功です。
+Project全体では通常環境95 Test中94件成功、MCP専用1件のみSkip、MCP環境95 / 95件成功です。
 
 ## 実Model Trial前の条件
 

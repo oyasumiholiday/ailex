@@ -91,6 +91,19 @@ OpenAI Responses APIを使った実モデル評価は正常に実行できた。
 5. 校正後は別protocol IDと別protocol hashで再実行し、今回の結果を上書きしない。
 6. 計測系が安定してから複数trialを事前登録し、方式比較を行う。
 
+## 6.1 校正v2の実装状況
+
+2026-07-23に上記1から5を校正v2として実装した。
+
+- unified-diffは安全なfrom/to headerを必須とし、`diff --git` headerを任意として受理する。
+- structure-editは既存Nodeのsymbolとcontent-addressed IDを受理し、内部でsymbolへ正規化する。
+- 4条件の出力契約を`interface`と`candidate`へ分離した。
+- JSON候補は許可されるトップレベルフィールドとtarget参照方式を機械可読に列挙する。
+- 全条件へ同じversioned最小文法リファレンスを渡す。
+- OpenAI向けPrompt IDをv2へ更新し、契約メタデータを候補へコピーしないよう明記する。
+
+再実験は初回と混同しないよう、`intentbench-evolve-openai-calibration-v2-2026-07-23`として事前登録する。計画は`OPENAI_CALIBRATION_V2_PLAN_2026-07-23_JA.md`を参照する。
+
 ## 7. 再現用成果物
 
 - 成功した実行: `artifacts/intentbench/openai-pilot-2026-07-22-rerun-01/`

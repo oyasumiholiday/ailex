@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from intentir.benchmark import BenchmarkError, run_benchmark_manifest
+from intentir.compiler import compile_source
 
 
 class IntentBenchEvolveTest(unittest.TestCase):
@@ -130,6 +131,64 @@ class IntentBenchEvolveTest(unittest.TestCase):
                 "unsafe_unified_diff",
             )
             self.assertFalse((Path(directory) / "outside.intent").exists())
+
+    def test_unified_diff_accepts_standard_headers_without_git_header(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            copied = Path(directory) / "suite"
+            shutil.copytree(self.suite, copied)
+            diff = (
+                copied
+                / "candidates"
+                / "work_item"
+                / "checkpoint_01"
+                / "unified.diff"
+            )
+            lines = diff.read_text(encoding="utf-8").splitlines(keepends=True)
+            self.assertTrue(lines[0].startswith("diff --git "))
+            diff.write_text("".join(lines[1:]), encoding="utf-8")
+
+            result = run_benchmark_manifest(
+                copied / "smoke_manifest.json",
+                conditions=["unified-diff"],
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"]["passed"], 1)
+
+    def test_structure_edit_accepts_content_addressed_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            copied = Path(directory) / "suite"
+            shutil.copytree(self.suite, copied)
+            base_source = (
+                copied / "tasks" / "work_item" / "base.intent"
+            ).read_text(encoding="utf-8")
+            ir = compile_source(base_source)
+            entity_id = next(
+                node["id"]
+                for node in ir["nodes"]
+                if node["symbol"] == "entity:WorkItem"
+            )
+            candidate_path = (
+                copied
+                / "candidates"
+                / "work_item"
+                / "checkpoint_01"
+                / "structure_edit.json"
+            )
+            candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+            candidate["operations"][0]["target"] = entity_id
+            candidate_path.write_text(
+                json.dumps(candidate),
+                encoding="utf-8",
+            )
+
+            result = run_benchmark_manifest(
+                copied / "smoke_manifest.json",
+                conditions=["structure-edit"],
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"]["passed"], 1)
 
 
 if __name__ == "__main__":
