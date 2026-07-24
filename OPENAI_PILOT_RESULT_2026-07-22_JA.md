@@ -31,6 +31,8 @@ OpenAI Responses APIを使った実モデル評価は正常に実行できた。
 
 実験前の最初の試行では、Mac上のPython 3.13がCA証明書を発見できず、TLSハンドシェイク前に4回失敗した。OpenAI APIへHTTPリクエストは到達していない。パイロット実装は利用量を取得できない失敗を安全側に扱い、0.169728 USDを予約上限として記録した。`certifi`のCAバンドルを`SSL_CERT_FILE`に指定した再実行ではTLS接続が正常化した。
 
+2026-07-24に、OpenAI Providerが明示的な`SSL_CERT_FILE`、利用可能な`certifi`、OS/Python標準trust storeの順でCAを自動選択するよう改善した。証明書検証は無効化しない。API Keyを送らない接続確認でTLSを通過し、期待どおりHTTP 401へ到達した。証明書検証失敗は一般的なnetwork errorではなく`openai_tls_error`として診断する。
+
 ## 3. 条件別結果
 
 | 条件 | 実行チェックポイント | 成功 | 最初の失敗 | 結果 |

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -253,6 +255,7 @@ def _post_openai_response(
         with urllib.request.urlopen(
             http_request,
             timeout=config.request_timeout_seconds,
+            context=_openai_ssl_context(),
         ) as response:
             raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as error:
@@ -261,6 +264,14 @@ def _post_openai_response(
             f"OpenAI API returned HTTP {error.code}",
         ) from error
     except urllib.error.URLError as error:
+        if isinstance(error.reason, ssl.SSLCertVerificationError):
+            raise OpenAIProviderError(
+                "openai_tls_error",
+                (
+                    "OpenAI API TLS certificate verification failed; "
+                    "configure SSL_CERT_FILE with a trusted CA bundle"
+                ),
+            ) from error
         raise OpenAIProviderError(
             "openai_network_error",
             "OpenAI API request failed",
@@ -288,6 +299,17 @@ def _post_openai_response(
             "OpenAI response must be a JSON object",
         )
     return parsed
+
+
+def _openai_ssl_context() -> ssl.SSLContext:
+    configured_bundle = os.environ.get("SSL_CERT_FILE")
+    if configured_bundle:
+        return ssl.create_default_context(cafile=configured_bundle)
+    try:
+        certifi = importlib.import_module("certifi")
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 def _extract_candidate(response: dict[str, Any]) -> str:

@@ -310,6 +310,8 @@ The observed contract ambiguities are addressed by a separately identified [cali
 
 The wrapper uses Structured Outputs, disables response storage, and records the provider response ID, returned and requested model IDs, token usage, prompt/configuration hashes, reasoning effort, and output limit. It never writes the API key into the provider payload or benchmark result. The network call is intentionally not part of the dependency-free test suite; provider parsing and failure behavior are tested offline.
 
+TLS verification remains mandatory. The wrapper prefers an explicit `SSL_CERT_FILE`, otherwise uses `certifi` when it is already available, and finally falls back to the operating-system/Python default trust store. Certificate verification failures receive a distinct `openai_tls_error` diagnostic; verification is never disabled.
+
 ## v0.14 capabilities
 
 - Nine structured Agent Tools with discoverable input and output JSON Schemas
