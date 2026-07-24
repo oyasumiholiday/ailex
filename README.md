@@ -9,7 +9,7 @@ Start with the [short Quickstart](QUICKSTART.md) for local and Container command
 
 IntentIR combines content-addressed program structure with typed pure functions, contracts, CRUD effects, scenario tests, structured diagnostics, a transactional interpreter, relational SQLite projection, and TypeScript generation. Concise Ailex source is intended for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
-Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md), [hash-guarded semantic patches](PATCH_VALIDATION_REPORT_JA.md), and the [Agent/MCP interface](AGENT_MCP_VALIDATION_REPORT_JA.md).
+Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md), [hash-guarded semantic patches](PATCH_VALIDATION_REPORT_JA.md), the [Agent/MCP interface](AGENT_MCP_VALIDATION_REPORT_JA.md), and the latest [OpenAI calibration v4 result](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md).
 
 Security and quality reviews use the project-specific [Japanese checklist](SECURITY_QUALITY_CHECKLIST_JA.md), derived from the preserved [full review criteria](docs/SECURITY_QUALITY_REVIEW_CRITERIA_JA.md). The current findings and release blockers are recorded in the [2026-07-21 baseline review](SECURITY_QUALITY_BASELINE_2026-07-21_JA.md).
 
@@ -288,7 +288,7 @@ python3 -m intentir benchmark-model \
   --condition intent-patch \
   --adapter-command intentir-openai-adapter \
   --adapter-arg=--model \
-  --adapter-arg=gpt-5-2025-08-07 \
+  --adapter-arg=gpt-5.4-mini-2026-03-17 \
   --adapter-arg=--reasoning-effort \
   --adapter-arg=low \
   --measure-time \
@@ -296,7 +296,25 @@ python3 -m intentir benchmark-model \
   --json
 ```
 
+Before any paid run, use the checked-in budget-guarded preflight. It performs no provider request:
+
+```sh
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_pilot_protocol.json \
+  --json
+```
+
+The [Japanese pilot protocol](PILOT_EXPERIMENT_PROTOCOL_JA.md) fixes the model snapshot, prompt/configuration provenance, four conditions, maximum call count, pricing observation, USD 1.00 hard confirmation, stopping rules, and artifact layout. The first paid calibration pilot is documented in the [Japanese result report](OPENAI_PILOT_RESULT_2026-07-22_JA.md): 7 provider calls, 3 of 7 checkpoints accepted, and USD 0.031191 accounted cost.
+
+The observed contract ambiguities are addressed by a separately identified [calibration v2 protocol](benchmarks/intentbench_evolve/openai_calibration_v2_protocol.json) and [Japanese preregistration note](OPENAI_CALIBRATION_V2_PLAN_2026-07-23_JA.md). V2 adds a minimal versioned syntax reference, separates interface metadata from candidate fields, accepts content-addressed structure targets, and aligns unified-diff validation with the published contract. Its [paid result](OPENAI_CALIBRATION_V2_RESULT_2026-07-24_JA.md) completed 9 provider calls, accepted 6 of 9 executed checkpoints, completed the full-file trajectory, and accounted for USD 0.025839.
+
+The v2 result exposed a second contract layer: unified-diff hunk ranges and the value domains of Patch `member` and `value`. These were addressed by the separately identified [calibration v3 protocol](benchmarks/intentbench_evolve/openai_calibration_v3_protocol.json). Its [paid result](OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md) completed 11 provider calls, accepted 9 of 11 reached checkpoints, and completed both the full-file and intent-patch trajectories for USD 0.040957.
+
+V3 then exposed two narrower gaps: unified diffs need unchanged context after edits, and structure-edit `kind` must unambiguously denote the operation rather than the target definition type. The fixes, prompt-version pin, hypotheses, and budget guard were preregistered in the [calibration v4 plan](OPENAI_CALIBRATION_V4_PLAN_2026-07-24_JA.md). Its [paid result](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md) completed all 16 checkpoints across all four trajectories for USD 0.046466. This completes same-task calibration; held-out tasks are still required for evaluation.
+
 The wrapper uses Structured Outputs, disables response storage, and records the provider response ID, returned and requested model IDs, token usage, prompt/configuration hashes, reasoning effort, and output limit. It never writes the API key into the provider payload or benchmark result. The network call is intentionally not part of the dependency-free test suite; provider parsing and failure behavior are tested offline.
+
+TLS verification remains mandatory. The wrapper prefers an explicit `SSL_CERT_FILE`, otherwise uses `certifi` when it is already available, and finally falls back to the operating-system/Python default trust store. Certificate verification failures receive a distinct `openai_tls_error` diagnostic; verification is never disabled.
 
 ## v0.14 capabilities
 

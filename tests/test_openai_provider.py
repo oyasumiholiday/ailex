@@ -1,5 +1,9 @@
 import json
+import os
+import ssl
 import unittest
+import urllib.error
+from unittest import mock
 
 from intentir.compiler import compile_source
 from intentir.demos.concurrent_agent import DEMO_SOURCE
@@ -8,6 +12,8 @@ from intentir.providers.openai_responses import (
     CANDIDATE_RESPONSE_SCHEMA,
     OpenAIProviderError,
     OpenAIResponsesConfig,
+    _openai_ssl_context,
+    _post_openai_response,
     build_api_payload,
     build_parser,
     generate_adapter_response,
@@ -45,6 +51,15 @@ class OpenAIResponsesProviderTest(unittest.TestCase):
             CANDIDATE_RESPONSE_SCHEMA,
         )
         self.assertEqual(payload["reasoning"], {"effort": "low"})
+        model_input = json.loads(payload["input"])
+        self.assertEqual(
+            model_input["languageReference"]["id"],
+            "intentir-benchmark-subset-0.1.0",
+        )
+        self.assertEqual(
+            model_input["outputContract"]["interface"],
+            "intent-patch",
+        )
         self.assertTrue(prompt_id.startswith("sha256:"))
         self.assertTrue(configuration_id.startswith("sha256:"))
         changed_config = OpenAIResponsesConfig(
@@ -123,6 +138,44 @@ class OpenAIResponsesProviderTest(unittest.TestCase):
             )
         self.assertEqual(context.exception.code, "incomplete_openai_response")
         self.assertNotIn("do-not-echo", str(context.exception))
+
+    def test_explicit_ca_bundle_has_priority(self) -> None:
+        expected_context = object()
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"SSL_CERT_FILE": "/tmp/intentir-test-ca.pem"},
+            ),
+            mock.patch(
+                "intentir.providers.openai_responses.ssl.create_default_context",
+                return_value=expected_context,
+            ) as create_context,
+        ):
+            context = _openai_ssl_context()
+
+        self.assertIs(context, expected_context)
+        create_context.assert_called_once_with(
+            cafile="/tmp/intentir-test-ca.pem",
+        )
+
+    def test_tls_verification_failure_has_specific_diagnostic(self) -> None:
+        tls_error = ssl.SSLCertVerificationError(
+            1,
+            "unable to get local issuer certificate",
+        )
+        with mock.patch(
+            "intentir.providers.openai_responses.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(tls_error),
+        ):
+            with self.assertRaises(OpenAIProviderError) as context:
+                _post_openai_response(
+                    {"model": self.config.model},
+                    "test-secret",
+                    self.config,
+                )
+
+        self.assertEqual(context.exception.code, "openai_tls_error")
+        self.assertNotIn("test-secret", str(context.exception))
 
 
 if __name__ == "__main__":

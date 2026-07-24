@@ -125,6 +125,8 @@ Tool Demonstrationでも、成熟ToolならValidation結果、初期Prototypeな
 
 > **Harness状況 2026-07-21:** 1 Application x 4変更 x 4編集条件のFixture Trajectoryを実装し、16 / 16 Checkpoint Runが成功しました。外部Command型Model Adapter、OpenAI Responses API Wrapper、Trial Provenance、失敗分類も実装し、Fake APIで検証しています。課金を伴う実Model Trialは未実施であり、現在の結果は性能Evidenceではありません。
 
+> **Pilot準備状況 2026-07-22:** 日付固定`gpt-5.4-mini-2026-03-17`、4編集条件、最大16 call、`medium`、1.00 USD上限を機械可読Protocolへ固定しました。既定はNetworkなしのPreflightで、課金実行には実行Flag、上限額一致、API Key、新規出力Directoryが必要です。Fake Providerで全Request/Response/Candidate/Token/費用の逐次保存を検証済みですが、実API Trialはまだ実施していません。
+
 ## 査読者向けArtifact
 
 査読者にSource buildを要求しないため、次の入口を用意します。

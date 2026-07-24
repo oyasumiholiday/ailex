@@ -118,7 +118,7 @@ python3 -m compileall -q intentir tests
 - Fixture Model Adapter: 1 / 1 Trajectory、4 / 4 Checkpoint Run成功
 - OpenAI Provider Wrapper: Fake APIによるOffline Test成功、実API未実行
 - 通常環境: 91 Test中90成功、MCP専用1 TestのみSkip
-- optional MCP環境: 91 / 91 Test成功
+- optional MCP環境: 92 / 92 Test成功
 - Benchmark JSONはTimingなしで複数回完全一致
 - 7種類の公開JSON Schemaに対し、Fixture/Model Manifestを含む9実体が検証成功
 - 配布wheelを別の仮想環境へ再Installした状態でも16 / 16 Trajectoryと4 / 4 Adapter実行が成功

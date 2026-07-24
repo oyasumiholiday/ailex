@@ -47,18 +47,29 @@ STRUCTURE_EDIT_FIELDS = {"schemaVersion", "operations"}
 
 
 class BenchmarkError(ValueError):
-    def __init__(self, code: str, message: str, path: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        path: str,
+        *,
+        scope: Iterable[str] = (),
+    ) -> None:
         self.code = code
         self.message = message
         self.path = path
+        self.scope = tuple(scope)
         super().__init__(message)
 
-    def to_dict(self) -> dict[str, str]:
-        return {
+    def to_dict(self) -> dict[str, Any]:
+        diagnostic: dict[str, Any] = {
             "code": self.code,
             "message": self.message,
             "path": self.path,
         }
+        if self.scope:
+            diagnostic["scope"] = list(self.scope)
+        return diagnostic
 
 
 @dataclass(frozen=True)
@@ -418,7 +429,11 @@ def _structure_edit_envelope(
             "structure edit operations must be a non-empty array",
             "/candidate/operations",
         )
-    nodes = {node["symbol"]: node for node in base_ir["nodes"]}
+    nodes = {
+        reference: node
+        for node in base_ir["nodes"]
+        for reference in (node["symbol"], node["id"])
+    }
     normalized = []
     for index, operation in enumerate(operations):
         path = f"/candidate/operations/{index}"
@@ -432,8 +447,12 @@ def _structure_edit_envelope(
         if kind not in PATCH_KINDS:
             raise BenchmarkError(
                 "unknown_structure_operation",
-                f"unknown structure operation: {kind}",
+                (
+                    f"unknown structure operation: {kind}; kind must name an "
+                    "operation, while the target prefix names the definition kind"
+                ),
                 f"{path}/kind",
+                scope=sorted(PATCH_KINDS),
             )
         allowed = OPERATION_FIELDS[kind] - {"expectedId"}
         _reject_unknown(operation, allowed, path)
@@ -447,6 +466,7 @@ def _structure_edit_envelope(
                     f"unknown structure edit target: {target}",
                     f"{path}/target",
                 )
+            item["target"] = node["symbol"]
             item["expectedId"] = node["id"]
         normalized.append(item)
     return {
@@ -478,7 +498,11 @@ def _apply_unified_diff(base_source: str, diff: str) -> str:
                 "benchmark diff may only modify workspace.intent",
                 "/candidate",
             )
-    if git_headers != ["diff --git a/workspace.intent b/workspace.intent"] or headers != [
+    allowed_git_headers = (
+        [],
+        ["diff --git a/workspace.intent b/workspace.intent"],
+    )
+    if git_headers not in allowed_git_headers or headers != [
         "--- a/workspace.intent",
         "+++ b/workspace.intent",
     ]:
@@ -512,7 +536,7 @@ def _apply_unified_diff(base_source: str, diff: str) -> str:
             if checked.returncode != 0:
                 raise BenchmarkError(
                     "unified_diff_apply_failed",
-                    "unified diff did not apply to the benchmark base source",
+                    _unified_diff_failure_message(checked.stderr),
                     "/candidate",
                 )
             applied = subprocess.run(
@@ -543,10 +567,21 @@ def _apply_unified_diff(base_source: str, diff: str) -> str:
         if applied.returncode != 0:
             raise BenchmarkError(
                 "unified_diff_apply_failed",
-                "unified diff could not be applied",
+                _unified_diff_failure_message(applied.stderr),
                 "/candidate",
             )
         return workspace.read_text(encoding="utf-8")
+
+
+def _unified_diff_failure_message(stderr: str) -> str:
+    if "patch failed" in stderr or "patch does not apply" in stderr:
+        return (
+            "unified diff did not apply; verify hunk line ranges and include "
+            "unchanged context lines before and after each change"
+        )
+    if "corrupt patch at line" in stderr:
+        return "unified diff is malformed; verify every hunk header and line prefix"
+    return "unified diff did not apply to the benchmark base source"
 
 
 def _load_manifest(path: Path) -> dict[str, Any]:
