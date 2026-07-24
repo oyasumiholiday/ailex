@@ -73,3 +73,11 @@ python3 -m intentir pilot \
 - 同一課題のため、改善しても一般化性能とは呼ばない。
 - n=1なので統計的推論を行わない。
 - v3で計測系を安定させた後、未使用課題を固定して本評価へ移る。
+
+## 7. 実行結果
+
+2026-07-24に明示承認を受けて有料実行した。11回のAPI呼び出しで9 checkpointを受理し、実計上額は0.040957 USDだった。full-fileとintent-patchが4/4を完走した。
+
+H2、H3、OfflineのH4は支持された。H1は不支持で、unified diffに変更後Contextの契約不足が残った。structure-editでは`kind`を対象種別と解釈する新しい曖昧さを観測した。
+
+詳細、費用内訳、解釈上の注意、次のOffline修正は [校正v3実モデル検証レポート](OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md) に記録した。
