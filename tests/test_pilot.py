@@ -4,8 +4,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from intentir.pilot import PilotError, preflight_pilot, run_pilot
+from intentir.providers.openai_responses import PROMPT_VERSION
 
 
 class PilotExperimentTest(unittest.TestCase):
@@ -112,6 +114,31 @@ class PilotExperimentTest(unittest.TestCase):
                 for item in output.rglob("*.json")
             )
             self.assertNotIn("offline-test-key", serialized_output)
+
+    def test_prompt_version_pin_rejects_provider_drift_before_execution(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        protocol = (
+            root
+            / "benchmarks"
+            / "intentbench_evolve"
+            / "openai_calibration_v4_protocol.json"
+        )
+
+        preflight = preflight_pilot(protocol)
+        self.assertEqual(preflight["promptVersion"], PROMPT_VERSION)
+
+        with mock.patch(
+            "intentir.pilot.PROMPT_VERSION",
+            "intentir-openai-responses-future",
+        ):
+            with self.assertRaises(PilotError) as context:
+                preflight_pilot(protocol)
+
+        self.assertEqual(
+            context.exception.code,
+            "pilot_prompt_version_mismatch",
+        )
+        self.assertEqual(context.exception.path, "/promptVersion")
 
 
 if __name__ == "__main__":

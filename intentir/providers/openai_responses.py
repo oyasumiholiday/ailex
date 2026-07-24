@@ -22,7 +22,7 @@ from intentir.model_adapter import (
 
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-PROMPT_VERSION = "intentir-openai-responses-v3"
+PROMPT_VERSION = "intentir-openai-responses-v4"
 MAX_PROVIDER_REQUEST_BYTES = 4_000_000
 MAX_PROVIDER_RESPONSE_BYTES = 4_000_000
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
@@ -34,6 +34,8 @@ Follow languageReference exactly and do not invent syntax.
 outputContract.interface describes the editing interface; it is not a candidate field.
 For a JSON candidate, emit only outputContract.candidate.allowedTopLevelFields.
 Follow outputContract.candidate.targetReferences when an operation has a target.
+For unified diffs, follow hunkContext and include unchanged lines after each change when the source permits.
+For structure-edit operations, kind is the operation discriminator; entity, action, function, capability, and test belong only in the target prefix.
 For member operations, follow memberSemantics and memberCollectionsByTargetKind; member does not name the inserted item.
 Follow memberValueContracts for the operation value.
 Place the complete candidate text in the candidate field. The candidate must follow outputContract.candidate exactly."""

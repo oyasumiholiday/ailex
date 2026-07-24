@@ -10,6 +10,7 @@ from intentir.benchmark import BENCHMARK_CONDITIONS, BenchmarkError
 from intentir.canonical import content_address
 from intentir.model_adapter import ModelAdapterError
 from intentir.providers.openai_responses import (
+    PROMPT_VERSION,
     OpenAIProviderError,
     OpenAIResponsesConfig,
     ProviderSender,
@@ -26,6 +27,7 @@ PROTOCOL_FIELDS = {
     "manifest",
     "conditions",
     "provider",
+    "promptVersion",
     "model",
     "reasoningEffort",
     "maxOutputTokens",
@@ -97,6 +99,18 @@ def load_pilot_protocol(path: Path | str) -> dict[str, Any]:
             "pilot provider must be openai-responses",
             "/provider",
         )
+    prompt_version = None
+    if "promptVersion" in raw:
+        prompt_version = _non_empty_string(raw, "promptVersion")
+        if prompt_version != PROMPT_VERSION:
+            raise PilotError(
+                "pilot_prompt_version_mismatch",
+                (
+                    "pilot promptVersion must match the installed provider "
+                    f"prompt: {PROMPT_VERSION}"
+                ),
+                "/promptVersion",
+            )
     model = _non_empty_string(raw, "model")
     if not SNAPSHOT_RE.fullmatch(model):
         raise PilotError(
@@ -239,6 +253,8 @@ def load_pilot_protocol(path: Path | str) -> dict[str, Any]:
             "sourceUrl": source_url,
         },
     }
+    if prompt_version is not None:
+        normalized["promptVersion"] = prompt_version
     return {
         "path": protocol_path,
         "manifestPath": manifest_path,
@@ -268,6 +284,7 @@ def preflight_pilot(path: Path | str) -> dict[str, Any]:
         "manifest": protocol["manifest"],
         "conditions": protocol["conditions"],
         "model": protocol["model"],
+        "promptVersion": protocol.get("promptVersion"),
         "reasoningEffort": protocol["reasoningEffort"],
         "trials": protocol["trials"],
         "maximumCalls": loaded["maximumCalls"],

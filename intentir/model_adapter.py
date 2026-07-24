@@ -257,6 +257,14 @@ def output_contract(condition: str) -> dict[str, Any]:
                     "@@ -<oldStart>,<oldCount> "
                     "+<newStart>,<newCount> @@"
                 ),
+                "hunkContext": {
+                    "minimumUnchangedLinesBefore": 1,
+                    "minimumUnchangedLinesAfter": 1,
+                    "linePrefix": " ",
+                    "boundaryException": (
+                        "omit only when the change is at the start or end of file"
+                    ),
+                },
                 "optionalGitHeader": (
                     "diff --git a/workspace.intent b/workspace.intent"
                 ),
@@ -281,6 +289,27 @@ def output_contract(condition: str) -> dict[str, Any]:
                         "context.nodes[].id",
                     ],
                     "newDefinition": "<definition-kind>:<name>",
+                },
+                "operationDiscriminator": {
+                    "field": "kind",
+                    "meaning": (
+                        "operation kind, never the target definition kind"
+                    ),
+                    "allowedValues": sorted(PATCH_KINDS),
+                    "targetDefinitionKindLocation": (
+                        "the prefix of target before ':'"
+                    ),
+                },
+                "operationExample": {
+                    "kind": "insert_member",
+                    "target": "entity:Example",
+                    "member": "fields",
+                    "index": 0,
+                    "value": {
+                        "name": "label",
+                        "type": "Text",
+                        "default": "",
+                    },
                 },
                 "memberSemantics": {
                     "insert_member": (

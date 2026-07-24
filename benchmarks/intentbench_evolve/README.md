@@ -89,6 +89,10 @@ python3 -m intentir pilot \
 python3 -m intentir pilot \
   benchmarks/intentbench_evolve/openai_calibration_v3_protocol.json \
   --json
+
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_calibration_v4_protocol.json \
+  --json
 ```
 
 Paid execution additionally requires `--execute`, an exact `--confirm-budget-usd` match, `OPENAI_API_KEY`, and a new output directory. It archives the normalized protocol, every secret-free request/payload/response, candidates, token usage, accounted cost, trial result, and summary. No retry is performed after a provider or candidate failure. See [the Japanese pilot protocol](../../PILOT_EXPERIMENT_PROTOCOL_JA.md) before authorizing a paid run.
@@ -96,3 +100,5 @@ Paid execution additionally requires `--execute`, an exact `--confirm-budget-usd
 Failed runs include a stable `failure.stage` plus diagnostic codes, and summaries aggregate them under `failuresByCode`. The current stages distinguish generation, stale preconditions, semantic scope, verification, and other candidate failures.
 
 The v3 paid calibration used 11 provider calls, accounted for 0.040957 USD, and accepted 9 of 11 reached checkpoints. Both `full-file` and `intent-patch` completed all four checkpoints. This is a single-task calibration result, not a statistical comparison. See the [Japanese v3 result](../../OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md).
+
+The v4 protocol pins `intentir-openai-responses-v4` in addition to the model and budget. Preflight rejects a prompt-version mismatch before any provider call. V4 remains network-free until separately authorized; see the [Japanese v4 plan](../../OPENAI_CALIBRATION_V4_PLAN_2026-07-24_JA.md).

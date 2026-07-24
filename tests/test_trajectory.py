@@ -171,6 +171,17 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
             unified["candidate"]["hunkHeaderFormat"],
             "@@ -<oldStart>,<oldCount> +<newStart>,<newCount> @@",
         )
+        self.assertEqual(
+            unified["candidate"]["hunkContext"],
+            {
+                "minimumUnchangedLinesBefore": 1,
+                "minimumUnchangedLinesAfter": 1,
+                "linePrefix": " ",
+                "boundaryException": (
+                    "omit only when the change is at the start or end of file"
+                ),
+            },
+        )
 
         structure = build_model_request(
             suite="adapter-test",
@@ -195,6 +206,31 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
                 "objectRequired"
             ],
             ["name", "type"],
+        )
+        self.assertEqual(
+            structure["candidate"]["operationDiscriminator"],
+            {
+                "field": "kind",
+                "meaning": "operation kind, never the target definition kind",
+                "allowedValues": [
+                    "add_definition",
+                    "insert_member",
+                    "remove_definition",
+                    "remove_member",
+                    "rename_symbol",
+                    "replace_definition",
+                    "set_member",
+                ],
+                "targetDefinitionKindLocation": "the prefix of target before ':'",
+            },
+        )
+        self.assertEqual(
+            structure["candidate"]["operationExample"]["kind"],
+            "insert_member",
+        )
+        self.assertNotIn(
+            "WorkItem",
+            json.dumps(structure["candidate"]["operationExample"]),
         )
 
 

@@ -202,7 +202,7 @@ Patchは内容ID、依存Edge、検証義務を直接編集しません。Defini
 
 ## Agent接続
 
-> 実装状況 2026-07-24: 以下の9 Toolを、依存なしのAgentService/CLIとoptionalな公式MCP Python SDK v1系stdio Serverとして実装済みです。Project RootとImport境界、入力・出力Schema、構造化診断、実stdio接続、二Agent競合Demo、IntentBench-Evolveの4段階Trajectory、外部Model Adapter、OpenAI Responses API Wrapperを含む98件の自動テストで検証しています。最初の有料Pilotは7 call、0.031191 USD、3/7 checkpoint成功でした。校正v2は9 call、0.025839 USD、6/9 checkpoint成功となり、full-fileが初めて4/4を完走しました。校正v3は11 call、0.040957 USD、9/11 checkpoint成功となり、intent-patchも初めて4/4を完走しました。次のGateはdiff Contextとstructure-edit操作種別のOffline修正、その後の未使用課題による40 Checkpoint本評価です。
+> 実装状況 2026-07-24: 以下の9 Toolを、依存なしのAgentService/CLIとoptionalな公式MCP Python SDK v1系stdio Serverとして実装済みです。Project RootとImport境界、入力・出力Schema、構造化診断、実stdio接続、二Agent競合Demo、IntentBench-Evolveの4段階Trajectory、外部Model Adapter、OpenAI Responses API Wrapperを含む101件の自動テストで検証しています。最初の有料Pilotは7 call、0.031191 USD、3/7 checkpoint成功でした。校正v2は9 call、0.025839 USD、6/9 checkpoint成功となり、full-fileが初めて4/4を完走しました。校正v3は11 call、0.040957 USD、9/11 checkpoint成功となり、intent-patchも初めて4/4を完走しました。残ったdiff Contextとstructure-edit操作種別は校正v4としてOffline修復し、Prompt versionもProtocolへ固定しました。次のGateは別承認による少額v4確認、その後の未使用課題による40 Checkpoint本評価です。
 
 MCPはTool、Resource、PromptなどをAgentへ公開し、Capability Discoveryを行う標準的な接続面を提供しています。IntentIR専用Agentを先に作るより、モデル非依存のMCP Serverを作るほうが採用障壁を下げられます。[MCP公式Architecture](https://modelcontextprotocol.io/docs/learn/architecture)
 

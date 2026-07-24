@@ -6,7 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from intentir.benchmark import BenchmarkError, run_benchmark_manifest
+from intentir.benchmark import (
+    BenchmarkError,
+    materialize_benchmark_candidate,
+    run_benchmark_manifest,
+)
 from intentir.compiler import compile_source
 
 
@@ -154,6 +158,91 @@ class IntentBenchEvolveTest(unittest.TestCase):
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["summary"]["passed"], 1)
+
+    def test_v3_unified_diff_failure_explains_required_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            copied = Path(directory) / "suite"
+            shutil.copytree(self.suite, copied)
+            diff = (
+                copied
+                / "candidates"
+                / "work_item"
+                / "checkpoint_01"
+                / "unified.diff"
+            )
+            diff.write_text(
+                "--- a/workspace.intent\n"
+                "+++ b/workspace.intent\n"
+                "@@ -3,4 +3,5 @@\n"
+                " entity WorkItem:\n"
+                "   id: UUID required key\n"
+                "   title: Text required\n"
+                '   status: Text default "open"\n'
+                "+  priority: Integer default 0\n",
+                encoding="utf-8",
+            )
+
+            result = run_benchmark_manifest(
+                copied / "smoke_manifest.json",
+                conditions=["unified-diff"],
+            )
+
+            self.assertFalse(result["ok"])
+            diagnostic = result["runs"][0]["diagnostics"][0]
+            self.assertEqual(diagnostic["code"], "unified_diff_apply_failed")
+            self.assertIn(
+                "unchanged context lines before and after",
+                diagnostic["message"],
+            )
+            self.assertNotIn(str(copied), diagnostic["message"])
+
+    def test_v3_structure_edit_failure_returns_operation_scope(self) -> None:
+        base_source = (
+            self.suite / "tasks" / "work_item" / "base.intent"
+        ).read_text(encoding="utf-8")
+        candidate = json.dumps(
+            {
+                "schemaVersion": "0.1.0",
+                "operations": [
+                    {
+                        "kind": "entity",
+                        "target": "entity:WorkItem",
+                        "member": "fields",
+                        "index": 4,
+                        "value": {
+                            "name": "owner",
+                            "type": "Text",
+                            "default": "unassigned",
+                        },
+                        "operation": "insert_member",
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaises(BenchmarkError) as context:
+            materialize_benchmark_candidate(
+                "structure-edit",
+                base_source,
+                compile_source(base_source),
+                candidate,
+            )
+
+        diagnostic = context.exception.to_dict()
+        self.assertEqual(diagnostic["code"], "unknown_structure_operation")
+        self.assertEqual(
+            diagnostic["scope"],
+            [
+                "add_definition",
+                "insert_member",
+                "remove_definition",
+                "remove_member",
+                "rename_symbol",
+                "replace_definition",
+                "set_member",
+            ],
+        )
+        self.assertIn("target prefix", diagnostic["message"])
 
     def test_structure_edit_accepts_content_addressed_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
