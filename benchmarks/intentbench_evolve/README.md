@@ -101,4 +101,4 @@ Failed runs include a stable `failure.stage` plus diagnostic codes, and summarie
 
 The v3 paid calibration used 11 provider calls, accounted for 0.040957 USD, and accepted 9 of 11 reached checkpoints. Both `full-file` and `intent-patch` completed all four checkpoints. This is a single-task calibration result, not a statistical comparison. See the [Japanese v3 result](../../OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md).
 
-The v4 protocol pins `intentir-openai-responses-v4` in addition to the model and budget. Preflight rejects a prompt-version mismatch before any provider call. V4 remains network-free until separately authorized; see the [Japanese v4 plan](../../OPENAI_CALIBRATION_V4_PLAN_2026-07-24_JA.md).
+The v4 protocol pins `intentir-openai-responses-v4` in addition to the model and budget. Preflight rejects a prompt-version mismatch before any provider call. Its separately authorized paid calibration accepted all 16 checkpoints and accounted for 0.046466 USD. This completes same-task contract calibration, not held-out evaluation; see the [Japanese v4 result](../../OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md).

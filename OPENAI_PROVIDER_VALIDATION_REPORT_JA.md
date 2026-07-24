@@ -1,6 +1,6 @@
 # OpenAI Responses API Provider検証レポート
 
-> 2026-07-24追記: 日付固定Modelを使う有料Pilotと校正v2/v3を実行し、API疎通、Account権限、Token usage、費用計上、停止規則、Artifact保存を確認しました。最新の校正v3は11 call、0.040957 USD、9/11 checkpoint成功です。結果は [校正v3実モデル検証レポート](OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md) を参照してください。
+> 2026-07-24追記: 日付固定Modelを使う有料Pilotと校正v2/v3/v4を実行し、API疎通、Account権限、Token usage、費用計上、停止規則、Artifact保存を確認しました。最新の校正v4は16 call、0.046466 USD、16/16 checkpoint成功です。結果は [校正v4実モデル検証レポート](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md) を参照してください。
 
 - 確認日: 2026-07-21
 - 対象: `intentir-openai-adapter`
@@ -90,4 +90,4 @@ Project全体では通常環境101 Test中100件成功、MCP専用1件のみSkip
 6. API KeyのSecret StoreとLog非出力
 7. 評価TestをModel実行環境から分離したTask Package
 
-1 Application x 4 Conditionの少額校正はv3まで完了した。観測済み契約ギャップは校正v4としてOffline修正し、通信なしpreflightも固定した。次は別承認による少額v4確認後、別に固定した未使用課題の40 Checkpoint本評価へ拡張する。
+1 Application x 4 Conditionの少額校正はv4まで完了し、全16 checkpointを受理した。同一課題の契約校正は終了し、次は別に固定した未使用課題の40 Checkpoint本評価へ拡張する。

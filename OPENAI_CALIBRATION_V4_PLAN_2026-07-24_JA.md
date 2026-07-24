@@ -74,9 +74,9 @@ python3 -m intentir pilot \
 - `promptVersion: intentir-openai-responses-v4`
 - Protocol Hashは本書冒頭と一致
 
-## 6. 有料実行の状態
+## 6. 実行前の状態
 
-校正v4の有料実行は行っていない。実行には次のすべてが必要である。
+計画作成時点では校正v4の有料実行を行っていなかった。実行には次のすべてを必須とした。
 
 1. v4のコードと実験データをOpenAI APIへ送信する明示承認
 2. 費用上限への明示承認
@@ -92,3 +92,9 @@ python3 -m intentir pilot \
 - n=1なので統計的推論を行わない。
 - 成功しても「IntentPatchが他方式より優れる」とは結論しない。
 - 校正が安定した後、未使用課題による40 Checkpoint本評価へ移る。
+
+## 8. 実行結果
+
+2026-07-24に新しい明示承認とAPI Keyを受けて実行した。16回のAPI呼び出しで16 checkpointすべてを受理し、実計上額は0.046466 USDだった。
+
+H1、H2、H3は実モデルで支持され、H4、H5はOffline Testで支持された。結果は [校正v4実モデル検証レポート](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md) に記録した。
