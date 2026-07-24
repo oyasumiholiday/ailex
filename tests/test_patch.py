@@ -158,6 +158,33 @@ class PatchTest(unittest.TestCase):
         removed = plan_patch_source(first.source, removal)
         self.assertNotIn("priority: Integer", removed.source)
 
+    def test_unsupported_member_reports_legal_collections(self) -> None:
+        item_id = node_id(SOURCE, "entity:Item")
+        invalid = envelope(
+            SOURCE,
+            [
+                {
+                    "kind": "insert_member",
+                    "target": "entity:Item",
+                    "expectedId": item_id,
+                    "member": "priority",
+                    "value": {
+                        "name": "priority",
+                        "type": "Integer",
+                        "default": 0,
+                    },
+                }
+            ],
+        )
+
+        with self.assertRaises(PatchError) as context:
+            plan_patch_source(SOURCE, invalid)
+
+        diagnostic = context.exception.diagnostics[0]
+        self.assertEqual(diagnostic.code, "unsupported_patch_member")
+        self.assertEqual(diagnostic.path, "/operations/0/member")
+        self.assertEqual(diagnostic.scope, ("fields",))
+
     def test_rename_updates_semantic_references(self) -> None:
         patch = envelope(
             SOURCE,

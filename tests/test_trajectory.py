@@ -167,6 +167,10 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
             unified["candidate"]["optionalGitHeader"],
             "diff --git a/workspace.intent b/workspace.intent",
         )
+        self.assertEqual(
+            unified["candidate"]["hunkHeaderFormat"],
+            "@@ -<oldStart>,<oldCount> +<newStart>,<newCount> @@",
+        )
 
         structure = build_model_request(
             suite="adapter-test",
@@ -181,6 +185,16 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
         self.assertEqual(
             structure["candidate"]["targetReferences"]["existingDefinition"],
             ["context.nodes[].symbol", "context.nodes[].id"],
+        )
+        self.assertEqual(
+            structure["candidate"]["memberCollectionsByTargetKind"]["entity"],
+            ["fields"],
+        )
+        self.assertEqual(
+            structure["candidate"]["memberValueContracts"]["fields"][
+                "objectRequired"
+            ],
+            ["name", "type"],
         )
 
 

@@ -72,6 +72,57 @@ DEFINITION_ATTRIBUTES = {
     "action": "actions",
     "test": "tests",
 }
+MEMBER_COLLECTIONS_BY_KIND = {
+    "capability": ("operations",),
+    "entity": ("fields",),
+    "function": ("inputs", "examples"),
+    "action": ("inputs", "uses", "requires", "effects", "ensures"),
+    "test": ("givens", "whens", "expects"),
+}
+MEMBER_VALUE_CONTRACTS = {
+    "fields": {
+        "objectRequired": ["name", "type"],
+        "objectOptional": [
+            "required",
+            "default",
+            "key",
+            "unique",
+            "references",
+        ],
+        "source": (
+            "<name>: <Type> [required] [key] [unique] [default <literal>]"
+        ),
+    },
+    "inputs": {
+        "objectRequired": ["name", "type"],
+        "objectOptional": [
+            "required",
+            "default",
+            "key",
+            "unique",
+            "references",
+        ],
+        "source": (
+            "<name>: <Type> [required] [key] [unique] [default <literal>]"
+        ),
+    },
+    "operations": {
+        "objectRequired": ["name", "returnType"],
+        "source": "operation <name> returns <Type>",
+    },
+    "uses": {
+        "objectRequired": ["capability", "operation", "binding"],
+    },
+    "givens": {
+        "objectRequired": ["capability", "operation", "value"],
+    },
+    "examples": {"encoding": "string"},
+    "requires": {"encoding": "string"},
+    "effects": {"encoding": "string"},
+    "ensures": {"encoding": "string"},
+    "whens": {"encoding": "string"},
+    "expects": {"encoding": "string"},
+}
 
 
 @dataclass(frozen=True)
@@ -611,7 +662,22 @@ def collection_access(
         f"member collection {collection} is not valid for {type(spec).__name__}",
         f"`{type(spec).__name__}` ではMember Collection `{collection}` を編集できません。",
         f"{path}/member",
+        scope=member_collections(spec),
     )
+
+
+def member_collections(spec: Any) -> tuple[str, ...]:
+    if isinstance(spec, CapabilitySpec):
+        return MEMBER_COLLECTIONS_BY_KIND["capability"]
+    if isinstance(spec, EntitySpec):
+        return MEMBER_COLLECTIONS_BY_KIND["entity"]
+    if isinstance(spec, FunctionSpec):
+        return MEMBER_COLLECTIONS_BY_KIND["function"]
+    if isinstance(spec, ActionSpec):
+        return MEMBER_COLLECTIONS_BY_KIND["action"]
+    if isinstance(spec, TestSpec):
+        return MEMBER_COLLECTIONS_BY_KIND["test"]
+    return ()
 
 
 def replace_collection(spec: Any, collection: str, items: list[Any]) -> Any:

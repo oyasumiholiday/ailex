@@ -7,7 +7,12 @@ from typing import Any, Protocol, Sequence
 
 from intentir.benchmark import BENCHMARK_CONDITIONS, MAX_CANDIDATE_BYTES
 from intentir.canonical import content_address
-from intentir.patch import OPERATION_FIELDS, PATCH_KINDS
+from intentir.patch import (
+    MEMBER_COLLECTIONS_BY_KIND,
+    MEMBER_VALUE_CONTRACTS,
+    OPERATION_FIELDS,
+    PATCH_KINDS,
+)
 
 
 MODEL_ADAPTER_SCHEMA_VERSION = "0.1.0"
@@ -248,6 +253,10 @@ def output_contract(condition: str) -> dict[str, Any]:
                     "--- a/workspace.intent",
                     "+++ b/workspace.intent",
                 ],
+                "hunkHeaderFormat": (
+                    "@@ -<oldStart>,<oldCount> "
+                    "+<newStart>,<newCount> @@"
+                ),
                 "optionalGitHeader": (
                     "diff --git a/workspace.intent b/workspace.intent"
                 ),
@@ -273,6 +282,18 @@ def output_contract(condition: str) -> dict[str, Any]:
                     ],
                     "newDefinition": "<definition-kind>:<name>",
                 },
+                "memberSemantics": {
+                    "insert_member": (
+                        "member is a collection name, never the inserted item name"
+                    ),
+                    "set_member": "member is <collection>.<item-selector>",
+                    "remove_member": "member is <collection>.<item-selector>",
+                },
+                "memberCollectionsByTargetKind": {
+                    kind: list(collections)
+                    for kind, collections in MEMBER_COLLECTIONS_BY_KIND.items()
+                },
+                "memberValueContracts": MEMBER_VALUE_CONTRACTS,
                 "operations": {
                     kind: sorted(OPERATION_FIELDS[kind] - {"expectedId"})
                     for kind in sorted(PATCH_KINDS)
@@ -306,6 +327,18 @@ def output_contract(condition: str) -> dict[str, Any]:
                     "copy the matching context.nodes[].id for an existing target"
                 ),
             },
+            "memberSemantics": {
+                "insert_member": (
+                    "member is a collection name, never the inserted item name"
+                ),
+                "set_member": "member is <collection>.<item-selector>",
+                "remove_member": "member is <collection>.<item-selector>",
+            },
+            "memberCollectionsByTargetKind": {
+                kind: list(collections)
+                for kind, collections in MEMBER_COLLECTIONS_BY_KIND.items()
+            },
+            "memberValueContracts": MEMBER_VALUE_CONTRACTS,
             "operations": {
                 kind: sorted(OPERATION_FIELDS[kind])
                 for kind in sorted(PATCH_KINDS)

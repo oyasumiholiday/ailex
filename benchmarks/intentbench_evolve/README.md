@@ -85,6 +85,10 @@ python3 -m intentir pilot \
 python3 -m intentir pilot \
   benchmarks/intentbench_evolve/openai_calibration_v2_protocol.json \
   --json
+
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_calibration_v3_protocol.json \
+  --json
 ```
 
 Paid execution additionally requires `--execute`, an exact `--confirm-budget-usd` match, `OPENAI_API_KEY`, and a new output directory. It archives the normalized protocol, every secret-free request/payload/response, candidates, token usage, accounted cost, trial result, and summary. No retry is performed after a provider or candidate failure. See [the Japanese pilot protocol](../../PILOT_EXPERIMENT_PROTOCOL_JA.md) before authorizing a paid run.

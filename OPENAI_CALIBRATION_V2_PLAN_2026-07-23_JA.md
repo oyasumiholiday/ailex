@@ -1,5 +1,7 @@
 # OpenAI 校正v2 実験計画
 
+実施結果: [OpenAI 校正v2 実モデル検証レポート](OPENAI_CALIBRATION_V2_RESULT_2026-07-24_JA.md)
+
 作成日: 2026-07-23
 Protocol ID: `intentbench-evolve-openai-calibration-v2-2026-07-23`
 位置づけ: 2026-07-22の有料パイロットで観測した契約不整合を除去する校正実験
