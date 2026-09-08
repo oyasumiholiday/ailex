@@ -949,17 +949,24 @@ def rename_definition(
             functions=[
                 replace(
                     function,
-                    body=rename_identifier(function.body, old_name, new_name),
-                    examples=rename_in_values(function.examples, old_name, new_name),
+                    body=rename_function_call(function.body, old_name, new_name),
+                    examples=rename_function_calls(
+                        function.examples, old_name, new_name
+                    ),
+                    bindings=rename_function_calls(
+                        function.bindings, old_name, new_name
+                    ),
                 )
                 for function in result.functions
             ],
             actions=[
                 replace(
                     action,
-                    requires=rename_in_values(action.requires, old_name, new_name),
-                    effects=rename_in_values(action.effects, old_name, new_name),
-                    ensures=rename_in_values(action.ensures, old_name, new_name),
+                    requires=rename_function_calls(
+                        action.requires, old_name, new_name
+                    ),
+                    effects=rename_function_calls(action.effects, old_name, new_name),
+                    ensures=rename_function_calls(action.ensures, old_name, new_name),
                 )
                 for action in result.actions
             ],
@@ -982,7 +989,42 @@ def rename_in_values(values: list[str], old_name: str, new_name: str) -> list[st
     return [rename_identifier(value, old_name, new_name) for value in values]
 
 
+def rename_function_calls(
+    values: list[str], old_name: str, new_name: str
+) -> list[str]:
+    return [rename_function_call(value, old_name, new_name) for value in values]
+
+
+def rename_function_call(source: str, old_name: str, new_name: str) -> str:
+    return rewrite_identifier(
+        source,
+        old_name,
+        new_name,
+        lambda _start, end: followed_by_call(source, end),
+    )
+
+
+def followed_by_call(source: str, end: int) -> bool:
+    index = end
+    while index < len(source) and source[index].isspace():
+        index += 1
+    while index < len(source) and source[index] == ")":
+        index += 1
+        while index < len(source) and source[index].isspace():
+            index += 1
+    return index < len(source) and source[index] == "("
+
+
 def rename_identifier(source: str, old_name: str, new_name: str) -> str:
+    return rewrite_identifier(source, old_name, new_name, lambda _start, _end: True)
+
+
+def rewrite_identifier(
+    source: str,
+    old_name: str,
+    new_name: str,
+    should_replace: Callable[[int, int], bool],
+) -> str:
     result: list[str] = []
     index = 0
     quote: str | None = None
@@ -1009,7 +1051,11 @@ def rename_identifier(source: str, old_name: str, new_name: str) -> str:
             while end < len(source) and (source[end].isalnum() or source[end] == "_"):
                 end += 1
             token = source[index:end]
-            result.append(new_name if token == old_name else token)
+            result.append(
+                new_name
+                if token == old_name and should_replace(index, end)
+                else token
+            )
             index = end
             continue
         result.append(char)

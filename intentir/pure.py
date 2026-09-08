@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import keyword
+import re
 from typing import Any, Iterator
 
 from intentir.expressions import ExpressionError, parse_literal
@@ -26,6 +27,9 @@ COMPARISON_OPERATORS = {
 BOOLEAN_OPERATORS = {ast.And: "and", ast.Or: "or"}
 UNARY_OPERATORS = {ast.Not: "not", ast.USub: "negate", ast.UAdd: "positive"}
 PURE_RESERVED_NAMES = {"true", "false", "null", *keyword.kwlist}
+FUNCTION_BINDING_RE = re.compile(
+    r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*(?P<value>.+)$"
+)
 
 
 def parse_pure_expression(source: str) -> dict[str, Any]:
@@ -48,6 +52,31 @@ def parse_function_example(source: str) -> dict[str, Any]:
         "call": expression,
         "expected": parse_literal(expected_source.strip()),
     }
+
+
+def parse_function_binding(source: str) -> tuple[str, str]:
+    match = FUNCTION_BINDING_RE.fullmatch(source.strip())
+    if match is None:
+        raise ExpressionError(f"invalid function binding: {source}")
+    return match.group("name"), match.group("value").strip()
+
+
+def lower_function_expression(
+    body: str, bindings: list[str]
+) -> dict[str, Any]:
+    lowered_bindings = [
+        (name, parse_pure_expression(value))
+        for name, value in (parse_function_binding(source) for source in bindings)
+    ]
+    expression = parse_pure_expression(body)
+    for name, value in reversed(lowered_bindings):
+        expression = {
+            "kind": "let",
+            "name": name,
+            "value": value,
+            "body": expression,
+        }
+    return expression
 
 
 def lower_expression(node: ast.AST) -> dict[str, Any]:
@@ -85,8 +114,18 @@ def lower_expression(node: ast.AST) -> dict[str, Any]:
         }
 
     if isinstance(node, ast.Compare):
-        if len(node.ops) != 1 or len(node.comparators) != 1:
-            raise ExpressionError("chained comparisons are not supported")
+        if len(node.ops) > 1:
+            return {
+                "kind": "comparison_chain",
+                "operands": [
+                    lower_expression(node.left),
+                    *(lower_expression(value) for value in node.comparators),
+                ],
+                "operators": [
+                    operator_name(operator, COMPARISON_OPERATORS, "comparison")
+                    for operator in node.ops
+                ],
+            }
         operator = operator_name(node.ops[0], COMPARISON_OPERATORS, "comparison")
         return {
             "kind": "comparison",

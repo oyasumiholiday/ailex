@@ -1,0 +1,82 @@
+module ComparisonChains
+
+function Lower:
+  input:
+    value: Integer required
+  returns: Integer
+  body: value - 1
+  examples:
+    Lower(value=0) equals -1
+    Lower(value=10) equals 9
+
+function Middle:
+  input:
+    value: Integer required
+  returns: Integer
+  body: value
+  examples:
+    Middle(value=0) equals 0
+    Middle(value=50) equals 50
+
+function Upper:
+  input:
+    value: Integer required
+  returns: Integer
+  body: value + 1
+  examples:
+    Upper(value=0) equals 1
+    Upper(value=10) equals 11
+
+function IsPercentage:
+  input:
+    value: Integer required
+  returns: Boolean
+  body: 0 <= value <= 100
+  examples:
+    IsPercentage(value=-1) equals false
+    IsPercentage(value=0) equals true
+    IsPercentage(value=50) equals true
+    IsPercentage(value=100) equals true
+
+function MixedChain:
+  input:
+    value: Integer required
+  returns: Boolean
+  body: 0 <= value != 50 < 100
+  examples:
+    MixedChain(value=-1) equals false
+    MixedChain(value=0) equals true
+    MixedChain(value=49) equals true
+    MixedChain(value=50) equals false
+
+function MixedNumbers:
+  input:
+    value: Number required
+  returns: Boolean
+  body: 0 <= value < 100.5
+  examples:
+    MixedNumbers(value=-0.5) equals false
+    MixedNumbers(value=0) equals true
+    MixedNumbers(value=50.25) equals true
+    MixedNumbers(value=100.5) equals false
+
+function MatchesAcceptance:
+  input:
+    value: Integer required
+    accepted: Boolean required
+  returns: Boolean
+  body: (0 <= value <= 100) == accepted == true
+  examples:
+    MatchesAcceptance(value=0, accepted=true) equals true
+    MatchesAcceptance(value=50, accepted=true) equals true
+    MatchesAcceptance(value=100, accepted=false) equals false
+    MatchesAcceptance(value=101, accepted=false) equals false
+
+function OrderedAround:
+  input:
+    value: Integer required
+  returns: Boolean
+  body: Lower(value) < Middle(value) < Upper(value)
+  examples:
+    OrderedAround(value=0) equals true
+    OrderedAround(value=50) equals true

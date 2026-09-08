@@ -15,8 +15,8 @@ from intentir.expressions import (
 )
 from intentir.pure import (
     function_references,
+    lower_function_expression,
     parse_function_example,
-    parse_pure_expression,
 )
 
 
@@ -100,6 +100,7 @@ class FunctionSpec:
     body: str = ""
     examples: list[str] = field(default_factory=list)
     defined_in: str = ""
+    bindings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -221,7 +222,7 @@ def build_entity_node(entity: EntitySpec, default_module: str) -> dict[str, Any]
 def build_function_node(
     function: FunctionSpec, default_module: str
 ) -> dict[str, Any]:
-    expression = parse_pure_expression(function.body)
+    expression = lower_function_expression(function.body, function.bindings)
     body_payload = {"kind": "function_body", "expression": expression}
     body = {
         "id": content_address(body_payload),

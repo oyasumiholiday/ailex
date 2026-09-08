@@ -234,6 +234,27 @@ def evaluate_pure_expression(
             expression["right"], variables, functions, stack
         )
         return evaluate_comparison(expression["op"], left, right)
+    if kind == "comparison_chain":
+        left = evaluate_pure_expression(
+            expression["operands"][0], variables, functions, stack
+        )
+        for operator, operand in zip(
+            expression["operators"], expression["operands"][1:]
+        ):
+            right = evaluate_pure_expression(operand, variables, functions, stack)
+            if not evaluate_comparison(operator, left, right):
+                return False
+            left = right
+        return True
+    if kind == "let":
+        value = evaluate_pure_expression(
+            expression["value"], variables, functions, stack
+        )
+        body_variables = variables.copy()
+        body_variables[expression["name"]] = value
+        return evaluate_pure_expression(
+            expression["body"], body_variables, functions, stack
+        )
     if kind == "boolean":
         if expression["op"] == "and":
             return all(
@@ -887,6 +908,7 @@ def resolve_value(
         "function_call",
         "binary",
         "comparison",
+        "comparison_chain",
         "boolean",
         "unary",
         "conditional",

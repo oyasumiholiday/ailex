@@ -71,7 +71,24 @@ function Clamp:
     Clamp(value=12, minimum=0, maximum=10) equals 10
 ```
 
-Functions can call other pure functions. Arithmetic, comparison, boolean, unary, and conditional expressions are lowered to a typed AST; recursive cycles are rejected until explicit termination obligations are available. The complete sample is [examples/functions.intent](examples/functions.intent).
+Functions may declare sequential immutable locals between `returns` and `body`. Each initializer sees only inputs and earlier locals; it is evaluated eagerly once, and its scalar type is inferred:
+
+```intentir
+function InvoiceTotal:
+  input:
+    price: Number required
+    quantity: Integer required
+    fee: Number required
+  returns: Number
+  let:
+    subtotal = price * quantity
+    total = subtotal + fee
+  body: total
+```
+
+Functions can call other pure functions. Arithmetic, comparison, boolean, unary, and conditional expressions are lowered to a typed AST; recursive cycles are rejected until explicit termination obligations are available. A single comparison keeps the existing `comparison` node with `op`, `left`, and `right`. A Python-style chain such as `0 <= value <= 100` lowers to `{"kind": "comparison_chain", "operands": [expr, ...], "operators": [op, ...]}`, where `len(operators) == len(operands) - 1`. Adjacent pairs use the same comparison typing rules as single comparisons. Both runtimes evaluate operands once from left to right and stop before the next operand when a comparison is false. Complete samples are [examples/functions.intent](examples/functions.intent) and [examples/comparison_chains.intent](examples/comparison_chains.intent).
+
+Function locals lower to nested `let` expression nodes and participate in normal type checking, content addressing, dependency traversal, interpretation, and TypeScript generation. They cannot shadow inputs or earlier locals. The complete sample is [examples/local_bindings.intent](examples/local_bindings.intent).
 
 Actions can use the same pure expression AST in requirements, update values, selectors, and postconditions. Bare names inside a pure expression refer to Action inputs:
 
@@ -351,7 +368,8 @@ TLS verification remains mandatory. The wrapper prefers an explicit `SSL_CERT_FI
 - Python/CLI injection with missing-value and runtime-type diagnostics
 - Scalar types: `Boolean`, `Integer`, `Number`, `Text`, `UUID`
 - Typed pure functions with required/default inputs and scalar return values
-- Structured arithmetic, comparison, boolean, unary, call, and conditional expressions
+- Sequential immutable function-local bindings with inferred scalar types
+- Structured arithmetic, single/chained comparison, boolean, unary, call, and conditional expressions
 - Content-addressed function bodies, `calls` edges, and example obligations
 - Static call checking and recursive-cycle rejection
 - Direct function evaluation through `intentir call`
@@ -423,7 +441,7 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The Ailex suite contains 89 conformance cases. The IntentIR suite contains 91 tests: 90 dependency-free tests and one optional end-to-end MCP stdio test. It covers Tool discovery, structured success/failure results, root-path containment, benchmark path/diff boundaries, four editing adapters, cumulative trajectories, external model provenance and failure classification, the offline-tested OpenAI wrapper, concurrent-agent stale rejection and refresh, Patch validation/application, TypeScript/SQLite builds, and all prior compiler/runtime/storage behavior.
+The Ailex suite contains 89 conformance cases. The IntentIR suite contains 116 tests: 115 dependency-free tests and one optional end-to-end MCP stdio test. It covers Tool discovery, structured success/failure results, root-path containment, benchmark path/diff boundaries, four editing adapters, cumulative trajectories, chained comparisons, immutable function locals, external model provenance and failure classification, the offline-tested OpenAI wrapper, concurrent-agent stale rejection and refresh, Patch validation/application, TypeScript/SQLite builds, and all prior compiler/runtime/storage behavior.
 
 ## License
 
@@ -431,4 +449,4 @@ The Ailex implementation is licensed under the [MIT License](LICENSE). The Inten
 
 ## Current boundaries
 
-Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Capability Operations currently accept no arguments and are injected as precomputed scalar values, so HTTP/File calls, async I/O, retries, and secret policies are not implemented. Keyless Entity changes still use full replacement. Patch operations edit definitions in the root source file only, use the currently supported semantic member paths, and canonical formatting may not preserve comments inside changed definitions. The MCP adapter currently supports local stdio only; remote HTTP transport, authentication, Resources, Prompts, and editor-specific installation helpers are not implemented. The OpenAI provider path is implemented and offline-tested, but no paid API trial has been executed or verified in this repository. The current trajectory candidates are handcrafted fixtures. The next practical step is to freeze the selected model snapshot and prompt, expand to the planned 10 applications and 40 checkpoints, and record real-model trials without exposing evaluation tests.
+Pure functions currently use scalar values and support immutable local bindings followed by a return expression; there are no general statements, reassignment or mutable locals, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Capability Operations currently accept no arguments and are injected as precomputed scalar values, so HTTP/File calls, async I/O, retries, and secret policies are not implemented. Keyless Entity changes still use full replacement. Patch operations edit definitions in the root source file only, use the currently supported semantic member paths, and canonical formatting may not preserve comments inside changed definitions. The MCP adapter currently supports local stdio only; remote HTTP transport, authentication, Resources, Prompts, and editor-specific installation helpers are not implemented. The OpenAI provider path is implemented and offline-tested, but no paid API trial has been executed or verified in this repository. The current trajectory candidates are handcrafted fixtures. The next practical step is to freeze the selected model snapshot and prompt, expand to the planned 10 applications and 40 checkpoints, and record real-model trials without exposing evaluation tests.

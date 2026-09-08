@@ -126,12 +126,14 @@ def render_function(
 def render_pure_expression(
     expression: dict[str, Any],
     functions_by_name: dict[str, dict[str, Any]],
+    scope_name: str = "resolvedInput",
+    let_depth: int = 0,
 ) -> str:
     kind = expression.get("kind")
     if kind == "literal":
         return ts_literal(expression["value"])
     if kind == "variable":
-        return f"resolvedInput.{expression['name']}"
+        return f"{scope_name}.{expression['name']}"
     if kind == "function_call":
         function = functions_by_name[expression["function"]]
         arguments: list[tuple[str, dict[str, Any]]] = []
@@ -141,13 +143,17 @@ def render_pure_expression(
             (item["name"], item["value"]) for item in expression["kwargs"]
         )
         rendered = ", ".join(
-            f"{name}: {render_pure_expression(value, functions_by_name)}"
+            f"{name}: {render_pure_expression(value, functions_by_name, scope_name, let_depth)}"
             for name, value in arguments
         )
         return f"{function['name']}({{ {rendered} }})"
     if kind == "binary":
-        left = render_pure_expression(expression["left"], functions_by_name)
-        right = render_pure_expression(expression["right"], functions_by_name)
+        left = render_pure_expression(
+            expression["left"], functions_by_name, scope_name, let_depth
+        )
+        right = render_pure_expression(
+            expression["right"], functions_by_name, scope_name, let_depth
+        )
         operator = expression["op"]
         if operator == "divide":
             return f"intentirDivide({left}, {right})"
@@ -158,8 +164,12 @@ def render_pure_expression(
         token = {"add": "+", "subtract": "-", "multiply": "*"}[operator]
         return f"({left} {token} {right})"
     if kind == "comparison":
-        left = render_pure_expression(expression["left"], functions_by_name)
-        right = render_pure_expression(expression["right"], functions_by_name)
+        left = render_pure_expression(
+            expression["left"], functions_by_name, scope_name, let_depth
+        )
+        right = render_pure_expression(
+            expression["right"], functions_by_name, scope_name, let_depth
+        )
         token = {
             "equal": "===",
             "not_equal": "!==",
@@ -169,23 +179,71 @@ def render_pure_expression(
             "greater_than_or_equal": ">=",
         }[expression["op"]]
         return f"({left} {token} {right})"
+    if kind == "comparison_chain":
+        operands = [
+            render_pure_expression(
+                operand, functions_by_name, scope_name, let_depth
+            )
+            for operand in expression["operands"]
+        ]
+        tokens = {
+            "equal": "===",
+            "not_equal": "!==",
+            "less_than": "<",
+            "less_than_or_equal": "<=",
+            "greater_than": ">",
+            "greater_than_or_equal": ">=",
+        }
+        statements = [f"const $intentirOperand0 = {operands[0]};"]
+        for index, (operator, operand) in enumerate(
+            zip(expression["operators"], operands[1:]), start=1
+        ):
+            statements.append(f"const $intentirOperand{index} = {operand};")
+            statements.append(
+                f"if (!($intentirOperand{index - 1} {tokens[operator]} "
+                f"$intentirOperand{index})) return false;"
+            )
+        statements.append("return true;")
+        return "(() => { " + " ".join(statements) + " })()"
+    if kind == "let":
+        value = render_pure_expression(
+            expression["value"], functions_by_name, scope_name, let_depth
+        )
+        binding_scope = f"$intentirScope{let_depth}"
+        body = render_pure_expression(
+            expression["body"],
+            functions_by_name,
+            binding_scope,
+            let_depth + 1,
+        )
+        name = json.dumps(expression["name"], ensure_ascii=False)
+        return (
+            f"(() => {{ const {binding_scope} = {{ ...{scope_name}, "
+            f"[{name}]: {value} }}; return {body}; }})()"
+        )
     if kind == "boolean":
         token = " && " if expression["op"] == "and" else " || "
         values = [
-            render_pure_expression(value, functions_by_name)
+            render_pure_expression(value, functions_by_name, scope_name, let_depth)
             for value in expression["values"]
         ]
         return "(" + token.join(values) + ")"
     if kind == "unary":
         token = {"not": "!", "negate": "-", "positive": "+"}[expression["op"]]
-        value = render_pure_expression(expression["value"], functions_by_name)
+        value = render_pure_expression(
+            expression["value"], functions_by_name, scope_name, let_depth
+        )
         return f"({token}{value})"
     if kind == "conditional":
         condition = render_pure_expression(
-            expression["condition"], functions_by_name
+            expression["condition"], functions_by_name, scope_name, let_depth
         )
-        then_value = render_pure_expression(expression["then"], functions_by_name)
-        else_value = render_pure_expression(expression["else"], functions_by_name)
+        then_value = render_pure_expression(
+            expression["then"], functions_by_name, scope_name, let_depth
+        )
+        else_value = render_pure_expression(
+            expression["else"], functions_by_name, scope_name, let_depth
+        )
         return f"({condition} ? {then_value} : {else_value})"
     return "undefined"
 
@@ -539,6 +597,7 @@ def render_value(
         "function_call",
         "binary",
         "comparison",
+        "comparison_chain",
         "boolean",
         "unary",
         "conditional",

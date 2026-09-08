@@ -1,0 +1,54 @@
+module LocalBindings
+
+function ServiceFee:
+  input:
+    amount: Number required
+  returns: Number
+  body: amount * 0.1
+  examples:
+    ServiceFee(amount=0.0) equals 0.0
+    ServiceFee(amount=10.0) equals 1.0
+
+function InvoiceTotal:
+  input:
+    price: Number required
+    quantity: Integer required
+    fee: Number required
+  returns: Number
+  let:
+    subtotal = price * quantity
+    total = subtotal + fee
+  body: total
+  examples:
+    InvoiceTotal(price=10.0, quantity=0, fee=2.0) equals 2.0
+    InvoiceTotal(price=10.0, quantity=3, fee=2.0) equals 32.0
+
+function TotalWithServiceFee:
+  input:
+    price: Number required
+    quantity: Integer required
+  returns: Number
+  let:
+    subtotal = price * quantity
+    fee = ServiceFee(subtotal)
+    total = subtotal + fee
+  body: total
+  examples:
+    TotalWithServiceFee(price=10.0, quantity=0) equals 0.0
+    TotalWithServiceFee(price=10.0, quantity=2) equals 22.0
+
+function WithinBudget:
+  input:
+    price: Number required
+    quantity: Integer required
+    fee: Number required
+    limit: Number required
+  returns: Boolean
+  let:
+    subtotal = price * quantity
+    total = subtotal + fee
+  body: 0.0 <= total <= limit
+  examples:
+    WithinBudget(price=10.0, quantity=0, fee=0.0, limit=0.0) equals true
+    WithinBudget(price=10.0, quantity=2, fee=2.0, limit=22.0) equals true
+    WithinBudget(price=10.0, quantity=2, fee=2.0, limit=21.0) equals false

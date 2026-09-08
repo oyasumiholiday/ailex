@@ -151,3 +151,19 @@ conformance 67 → **78/78 緑**。全7例回帰なし。受け入れ（aigen Ha
 - 「isSome+unwrapOr で覗くために番兵既定値が要る」（best 関数の `unwrapOr(acc, s).score`）は残る不便。**パターンマッチ（match）の将来根拠**として記録。
 
 conformance: 78 → **85/85 緑**。全8例緑。受け入れ（aigen Haiku）8/8 pass@1 退行なし。
+
+---
+
+# IntentIR dogfood: chained range comparisons（2026-09-08）
+
+- 境界チェックを自然な `0 <= value <= 100` と書くと、変更前の `parse_pure_expression` は `chained comparisons are not supported` で拒否した。
+- 同じ値を二度書く `0 <= value and value <= 100` は、式に関数呼び出しが入ると重複評価を招く。この実測した拒否を言語ギャップの根拠として、順序付きoperand/operatorを持つ `comparison_chain` IRを追加した。
+- `examples/comparison_chains.intent` が包含境界、関係/等価演算子の混在、chain operand内のFunction呼び出しを固定する。
+
+---
+
+# IntentIR dogfood: immutable function locals（2026-09-08）
+
+- `subtotal = price * quantity`、`total = subtotal + fee`と中間値を名前付けしようとしてFunctionに`let:`を置くと、変更前は`unknown function section ... let:`でParseErrorになった。
+- Bodyへ計算を重複展開すると読みにくく、Function呼出しを含む式では重複評価にもなる。この拒否を根拠に、Inputと先行Localだけを順に参照する不変Bindingをnested `let` IRとして追加した。
+- `examples/local_bindings.intent` がゼロ境界、連鎖Binding、Initializer内Function呼出し、comparison chainとの組合せを固定する。
