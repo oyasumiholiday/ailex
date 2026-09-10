@@ -1,13 +1,15 @@
 # Ailex + IntentIR
 
-This repository contains two layers of one AI-first programming system:
+This repository contains two related AI-first programming prototypes with separate implementations:
 
-- [Ailex](AILEX_README.md) is the compact typed surface language that AI and people write.
-- IntentIR is the executable, machine-oriented semantic layer that AI agents and compilers transform safely.
+- [Ailex](AILEX_README.md) is a compact typed language implemented by the TypeScript checker, interpreter, and JavaScript backend in `core/`.
+- IntentIR is a Python implementation of a content-addressed semantic language, verifier, transactional runtime, and agent editing interface in `intentir/`.
+
+There is no implemented Ailex-to-IntentIR lowering pipeline yet. Their source files, CLIs, and examples are currently independent.
 
 Start with the [short Quickstart](QUICKSTART.md) for local and Container commands.
 
-IntentIR combines content-addressed program structure with typed pure functions, contracts, CRUD effects, scenario tests, structured diagnostics, a transactional interpreter, relational SQLite projection, and TypeScript generation. Concise Ailex source is intended for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
+IntentIR combines content-addressed program structure with typed pure functions, contracts, CRUD effects, scenario tests, structured diagnostics, a transactional interpreter, relational SQLite projection, and TypeScript generation. Its canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
 Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md), [hash-guarded semantic patches](PATCH_VALIDATION_REPORT_JA.md), the [Agent/MCP interface](AGENT_MCP_VALIDATION_REPORT_JA.md), and the latest [OpenAI calibration v4 result](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md).
 
@@ -320,6 +322,8 @@ python3 -m intentir pilot \
   benchmarks/intentbench_evolve/openai_pilot_protocol.json \
   --json
 ```
+
+Execution counts the request input before each generation and enforces the protocol's reserved-token and maximum-call limits. The counter's compatibility and token values have not been live-verified; budget accounting uses fixed protocol pricing, and any separate fees for count requests are not included. See [Budget Guard validation and limitations](BUDGET_GUARD_VALIDATION_JA.md).
 
 The [Japanese pilot protocol](PILOT_EXPERIMENT_PROTOCOL_JA.md) fixes the model snapshot, prompt/configuration provenance, four conditions, maximum call count, pricing observation, USD 1.00 hard confirmation, stopping rules, and artifact layout. The first paid calibration pilot is documented in the [Japanese result report](OPENAI_PILOT_RESULT_2026-07-22_JA.md): 7 provider calls, 3 of 7 checkpoints accepted, and USD 0.031191 accounted cost.
 
