@@ -5,6 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 .venv/
+artifacts/
 venv/
 node_modules/
 .pytest_cache/

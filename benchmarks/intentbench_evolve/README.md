@@ -29,6 +29,8 @@ Wall-clock measurements are excluded by default so JSON output remains determini
 
 Machine-readable contracts are available for the independent [manifest](schema/manifest.schema.json) and [result](schema/result.schema.json), [structure edit](schema/structure_edit.schema.json), trajectory [manifest](schema/trajectory_manifest.schema.json) and [result](schema/trajectory_result.schema.json), and model [request](schema/model_request.schema.json) and [response](schema/model_response.schema.json). Runtime validation additionally enforces that candidate keys match the selected conditions and that resolved files remain inside the suite directory.
 
+The paid pilot configuration has its own machine-readable [protocol schema](schema/pilot_protocol.schema.json). The checked-in protocol uses a date-pinned model snapshot and records the pricing observation date instead of silently following a moving alias.
+
 The trajectory suite carries each condition's successful source into the next checkpoint and accumulates all prior evaluation tests. It currently contains one handcrafted application with four checkpoints, producing 16 fixture runs.
 
 ## External model adapter
@@ -43,7 +45,7 @@ python3 -m intentir benchmark-model \
   --json
 ```
 
-The wrapper receives one [model request](schema/model_request.schema.json) as JSON on stdin and must emit one [model response](schema/model_response.schema.json) on stdout. Requests include the current source, instruction, Module/Node IDs, and condition-specific output contract. They never include evaluation-test text. Responses echo the content-addressed `requestId`, identify the model, return the candidate as a string, and report provider token usage when available.
+The wrapper receives one [model request](schema/model_request.schema.json) as JSON on stdin and must emit one [model response](schema/model_response.schema.json) on stdout. Requests include the current source, instruction, Module/Node IDs, a minimal versioned IntentIR syntax reference, and a condition-specific output contract. Output contracts separate interface metadata from the exact candidate shape, list legal JSON fields, and define target-reference semantics. They never include evaluation-test text. Responses echo the content-addressed `requestId`, identify the model, return the candidate as a string, and report provider token usage when available.
 
 Candidate paths are optional in a trajectory manifest used with `benchmark-model`; they remain mandatory for fixture execution through `benchmark`. The included `model_trajectory_manifest.json` is therefore ready for a provider wrapper without carrying handcrafted answers.
 
@@ -69,6 +71,34 @@ python3 -m intentir benchmark-model \
   --json
 ```
 
-It asks the Responses API for a strict `{candidate: string}` Structured Output with `store: false`. The benchmark result records only the returned candidate, usage, response/model identifiers, and content-addressed prompt/configuration provenance. Provider bodies, credentials, and evaluation tests are not copied into diagnostics. Current automated coverage uses fake provider responses and does not spend API credits.
+It asks the Responses API for a strict `{candidate: string}` Structured Output with `store: false`. The ordinary benchmark result records the candidate hash, usage, response/model identifiers, and content-addressed prompt/configuration provenance. Provider bodies, credentials, and evaluation tests are not copied into diagnostics. Current automated coverage uses fake provider responses and does not spend API credits.
+
+## Budget-guarded pilot
+
+The default `pilot` command is a network-free preflight. Use the original protocol to reproduce the first pilot, or the separately identified v2 protocol for the post-pilot contract calibration:
+
+```sh
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_pilot_protocol.json \
+  --json
+
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_calibration_v2_protocol.json \
+  --json
+
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_calibration_v3_protocol.json \
+  --json
+
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_calibration_v4_protocol.json \
+  --json
+```
+
+Paid execution additionally requires `--execute`, an exact `--confirm-budget-usd` match, `OPENAI_API_KEY`, and a new output directory. It archives the normalized protocol, every secret-free request/payload/response, candidates, token usage, accounted cost, trial result, and summary. No retry is performed after a provider or candidate failure. See [the Japanese pilot protocol](../../PILOT_EXPERIMENT_PROTOCOL_JA.md) before authorizing a paid run.
 
 Failed runs include a stable `failure.stage` plus diagnostic codes, and summaries aggregate them under `failuresByCode`. The current stages distinguish generation, stale preconditions, semantic scope, verification, and other candidate failures.
+
+The v3 paid calibration used 11 provider calls, accounted for 0.040957 USD, and accepted 9 of 11 reached checkpoints. Both `full-file` and `intent-patch` completed all four checkpoints. This is a single-task calibration result, not a statistical comparison. See the [Japanese v3 result](../../OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md).
+
+The v4 protocol pins `intentir-openai-responses-v4` in addition to the model and budget. Preflight rejects a prompt-version mismatch before any provider call. Its separately authorized paid calibration accepted all 16 checkpoints and accounted for 0.046466 USD. This completes same-task contract calibration, not held-out evaluation; see the [Japanese v4 result](../../OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md).

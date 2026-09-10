@@ -29,8 +29,9 @@ from intentir.ir import (
 from intentir.pure import (
     PURE_RESERVED_NAMES,
     function_references,
+    lower_function_expression,
+    parse_function_binding,
     parse_function_example,
-    parse_pure_expression,
 )
 
 
@@ -205,9 +206,61 @@ def validate_function(
                 )
             )
 
+    binding_names: set[str] = set()
+    for index, source in enumerate(function.bindings):
+        binding_path = f"{path}/let/{index}"
+        try:
+            binding_name, _value = parse_function_binding(source)
+        except ExpressionError as error:
+            diagnostics.append(
+                make_diagnostic(
+                    "invalid_function_binding",
+                    f"function {function.name} has {error}",
+                    f"Function `{function.name}` のLet Bindingが不正です: `{error}`",
+                    binding_path,
+                    set(inputs) | binding_names,
+                    "Use `name = pure_expression`.",
+                )
+            )
+            continue
+        if binding_name in PURE_RESERVED_NAMES:
+            diagnostics.append(
+                make_diagnostic(
+                    "reserved_function_binding",
+                    f"function binding {function.name}.{binding_name} is reserved",
+                    f"Function Let `{function.name}.{binding_name}` は純粋式の予約語です。",
+                    binding_path,
+                    set(inputs) | binding_names,
+                    "Rename the binding.",
+                )
+            )
+        if binding_name in inputs:
+            diagnostics.append(
+                make_diagnostic(
+                    "function_binding_shadows_input",
+                    f"function binding {function.name}.{binding_name} shadows an input",
+                    f"Function Let `{function.name}.{binding_name}` がInputを隠しています。",
+                    binding_path,
+                    set(inputs) | binding_names,
+                    "Choose a name that is not an input.",
+                )
+            )
+        if binding_name in binding_names:
+            diagnostics.append(
+                make_diagnostic(
+                    "duplicate_function_binding",
+                    f"function binding {function.name}.{binding_name} is defined more than once",
+                    f"Function Let `{function.name}.{binding_name}` が重複しています。",
+                    binding_path,
+                    set(inputs) | binding_names,
+                    "Define each local binding once.",
+                )
+            )
+        binding_names.add(binding_name)
+
     validate_type(function.return_type, f"{path}/returns", diagnostics)
     try:
-        expression = parse_pure_expression(function.body)
+        expression = lower_function_expression(function.body, function.bindings)
     except ExpressionError as error:
         diagnostics.append(
             make_diagnostic(
@@ -343,6 +396,52 @@ def infer_pure_type(
                     diagnostics, "comparison", expression["op"], left, right, path
                 )
         return "Boolean"
+    if kind == "comparison_chain":
+        operand_types = [
+            infer_pure_type(
+                operand,
+                variables,
+                functions,
+                diagnostics,
+                f"{path}/operands/{index}",
+            )
+            for index, operand in enumerate(expression["operands"])
+        ]
+        for index, operator in enumerate(expression["operators"]):
+            left = operand_types[index]
+            right = operand_types[index + 1]
+            if left and right:
+                ordered = operator not in {"equal", "not_equal"}
+                orderable = (
+                    {left, right} <= {"Integer", "Number"}
+                    or {left, right} <= {"Text", "UUID"}
+                )
+                if (ordered and not orderable) or (
+                    not ordered and not compatible_types(left, right)
+                ):
+                    add_pure_type_error(
+                        diagnostics,
+                        "comparison_chain",
+                        operator,
+                        left,
+                        right,
+                        f"{path}/operators/{index}",
+                    )
+        return "Boolean"
+    if kind == "let":
+        value_type = infer_pure_type(
+            expression["value"],
+            variables,
+            functions,
+            diagnostics,
+            f"{path}/let/{expression['name']}",
+        )
+        body_variables = variables.copy()
+        if value_type:
+            body_variables[expression["name"]] = value_type
+        return infer_pure_type(
+            expression["body"], body_variables, functions, diagnostics, path
+        )
     if kind == "boolean":
         for index, value in enumerate(expression["values"]):
             value_type = infer_pure_type(
@@ -539,7 +638,7 @@ def validate_function_cycles(
     graph: dict[str, set[str]] = {}
     for function in function_specs:
         try:
-            expression = parse_pure_expression(function.body)
+            expression = lower_function_expression(function.body, function.bindings)
         except ExpressionError:
             continue
         graph[function.name] = {
@@ -1602,6 +1701,7 @@ def is_action_value(value: dict[str, Any]) -> bool:
         "function_call",
         "binary",
         "comparison",
+        "comparison_chain",
         "boolean",
         "unary",
         "conditional",

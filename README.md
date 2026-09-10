@@ -9,7 +9,7 @@ Start with the [short Quickstart](QUICKSTART.md) for local and Container command
 
 IntentIR combines content-addressed program structure with typed pure functions, contracts, CRUD effects, scenario tests, structured diagnostics, a transactional interpreter, relational SQLite projection, and TypeScript generation. Concise Ailex source is intended for authoring, while the canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
 
-Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md), [hash-guarded semantic patches](PATCH_VALIDATION_REPORT_JA.md), and the [Agent/MCP interface](AGENT_MCP_VALIDATION_REPORT_JA.md).
+Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md), [hash-guarded semantic patches](PATCH_VALIDATION_REPORT_JA.md), the [Agent/MCP interface](AGENT_MCP_VALIDATION_REPORT_JA.md), and the latest [OpenAI calibration v4 result](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md).
 
 Security and quality reviews use the project-specific [Japanese checklist](SECURITY_QUALITY_CHECKLIST_JA.md), derived from the preserved [full review criteria](docs/SECURITY_QUALITY_REVIEW_CRITERIA_JA.md). The current findings and release blockers are recorded in the [2026-07-21 baseline review](SECURITY_QUALITY_BASELINE_2026-07-21_JA.md).
 
@@ -71,7 +71,24 @@ function Clamp:
     Clamp(value=12, minimum=0, maximum=10) equals 10
 ```
 
-Functions can call other pure functions. Arithmetic, comparison, boolean, unary, and conditional expressions are lowered to a typed AST; recursive cycles are rejected until explicit termination obligations are available. The complete sample is [examples/functions.intent](examples/functions.intent).
+Functions may declare sequential immutable locals between `returns` and `body`. Each initializer sees only inputs and earlier locals; it is evaluated eagerly once, and its scalar type is inferred:
+
+```intentir
+function InvoiceTotal:
+  input:
+    price: Number required
+    quantity: Integer required
+    fee: Number required
+  returns: Number
+  let:
+    subtotal = price * quantity
+    total = subtotal + fee
+  body: total
+```
+
+Functions can call other pure functions. Arithmetic, comparison, boolean, unary, and conditional expressions are lowered to a typed AST; recursive cycles are rejected until explicit termination obligations are available. A single comparison keeps the existing `comparison` node with `op`, `left`, and `right`. A Python-style chain such as `0 <= value <= 100` lowers to `{"kind": "comparison_chain", "operands": [expr, ...], "operators": [op, ...]}`, where `len(operators) == len(operands) - 1`. Adjacent pairs use the same comparison typing rules as single comparisons. Both runtimes evaluate operands once from left to right and stop before the next operand when a comparison is false. Complete samples are [examples/functions.intent](examples/functions.intent) and [examples/comparison_chains.intent](examples/comparison_chains.intent).
+
+Function locals lower to nested `let` expression nodes and participate in normal type checking, content addressing, dependency traversal, interpretation, and TypeScript generation. They cannot shadow inputs or earlier locals. The complete sample is [examples/local_bindings.intent](examples/local_bindings.intent).
 
 Actions can use the same pure expression AST in requirements, update values, selectors, and postconditions. Bare names inside a pure expression refer to Action inputs:
 
@@ -288,7 +305,7 @@ python3 -m intentir benchmark-model \
   --condition intent-patch \
   --adapter-command intentir-openai-adapter \
   --adapter-arg=--model \
-  --adapter-arg=gpt-5-2025-08-07 \
+  --adapter-arg=gpt-5.4-mini-2026-03-17 \
   --adapter-arg=--reasoning-effort \
   --adapter-arg=low \
   --measure-time \
@@ -296,7 +313,25 @@ python3 -m intentir benchmark-model \
   --json
 ```
 
+Before any paid run, use the checked-in budget-guarded preflight. It performs no provider request:
+
+```sh
+python3 -m intentir pilot \
+  benchmarks/intentbench_evolve/openai_pilot_protocol.json \
+  --json
+```
+
+The [Japanese pilot protocol](PILOT_EXPERIMENT_PROTOCOL_JA.md) fixes the model snapshot, prompt/configuration provenance, four conditions, maximum call count, pricing observation, USD 1.00 hard confirmation, stopping rules, and artifact layout. The first paid calibration pilot is documented in the [Japanese result report](OPENAI_PILOT_RESULT_2026-07-22_JA.md): 7 provider calls, 3 of 7 checkpoints accepted, and USD 0.031191 accounted cost.
+
+The observed contract ambiguities are addressed by a separately identified [calibration v2 protocol](benchmarks/intentbench_evolve/openai_calibration_v2_protocol.json) and [Japanese preregistration note](OPENAI_CALIBRATION_V2_PLAN_2026-07-23_JA.md). V2 adds a minimal versioned syntax reference, separates interface metadata from candidate fields, accepts content-addressed structure targets, and aligns unified-diff validation with the published contract. Its [paid result](OPENAI_CALIBRATION_V2_RESULT_2026-07-24_JA.md) completed 9 provider calls, accepted 6 of 9 executed checkpoints, completed the full-file trajectory, and accounted for USD 0.025839.
+
+The v2 result exposed a second contract layer: unified-diff hunk ranges and the value domains of Patch `member` and `value`. These were addressed by the separately identified [calibration v3 protocol](benchmarks/intentbench_evolve/openai_calibration_v3_protocol.json). Its [paid result](OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md) completed 11 provider calls, accepted 9 of 11 reached checkpoints, and completed both the full-file and intent-patch trajectories for USD 0.040957.
+
+V3 then exposed two narrower gaps: unified diffs need unchanged context after edits, and structure-edit `kind` must unambiguously denote the operation rather than the target definition type. The fixes, prompt-version pin, hypotheses, and budget guard were preregistered in the [calibration v4 plan](OPENAI_CALIBRATION_V4_PLAN_2026-07-24_JA.md). Its [paid result](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md) completed all 16 checkpoints across all four trajectories for USD 0.046466. This completes same-task calibration; held-out tasks are still required for evaluation.
+
 The wrapper uses Structured Outputs, disables response storage, and records the provider response ID, returned and requested model IDs, token usage, prompt/configuration hashes, reasoning effort, and output limit. It never writes the API key into the provider payload or benchmark result. The network call is intentionally not part of the dependency-free test suite; provider parsing and failure behavior are tested offline.
+
+TLS verification remains mandatory. The wrapper prefers an explicit `SSL_CERT_FILE`, otherwise uses `certifi` when it is already available, and finally falls back to the operating-system/Python default trust store. Certificate verification failures receive a distinct `openai_tls_error` diagnostic; verification is never disabled.
 
 ## v0.14 capabilities
 
@@ -333,7 +368,8 @@ The wrapper uses Structured Outputs, disables response storage, and records the 
 - Python/CLI injection with missing-value and runtime-type diagnostics
 - Scalar types: `Boolean`, `Integer`, `Number`, `Text`, `UUID`
 - Typed pure functions with required/default inputs and scalar return values
-- Structured arithmetic, comparison, boolean, unary, call, and conditional expressions
+- Sequential immutable function-local bindings with inferred scalar types
+- Structured arithmetic, single/chained comparison, boolean, unary, call, and conditional expressions
 - Content-addressed function bodies, `calls` edges, and example obligations
 - Static call checking and recursive-cycle rejection
 - Direct function evaluation through `intentir call`
@@ -405,7 +441,7 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The Ailex suite contains 89 conformance cases. The IntentIR suite contains 91 tests: 90 dependency-free tests and one optional end-to-end MCP stdio test. It covers Tool discovery, structured success/failure results, root-path containment, benchmark path/diff boundaries, four editing adapters, cumulative trajectories, external model provenance and failure classification, the offline-tested OpenAI wrapper, concurrent-agent stale rejection and refresh, Patch validation/application, TypeScript/SQLite builds, and all prior compiler/runtime/storage behavior.
+The Ailex suite contains 89 conformance cases. The IntentIR suite contains 116 tests: 115 dependency-free tests and one optional end-to-end MCP stdio test. It covers Tool discovery, structured success/failure results, root-path containment, benchmark path/diff boundaries, four editing adapters, cumulative trajectories, chained comparisons, immutable function locals, external model provenance and failure classification, the offline-tested OpenAI wrapper, concurrent-agent stale rejection and refresh, Patch validation/application, TypeScript/SQLite builds, and all prior compiler/runtime/storage behavior.
 
 ## License
 
@@ -413,4 +449,4 @@ The Ailex implementation is licensed under the [MIT License](LICENSE). The Inten
 
 ## Current boundaries
 
-Pure functions currently use one expression body and scalar values; there are no statements, local bindings, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Capability Operations currently accept no arguments and are injected as precomputed scalar values, so HTTP/File calls, async I/O, retries, and secret policies are not implemented. Keyless Entity changes still use full replacement. Patch operations edit definitions in the root source file only, use the currently supported semantic member paths, and canonical formatting may not preserve comments inside changed definitions. The MCP adapter currently supports local stdio only; remote HTTP transport, authentication, Resources, Prompts, and editor-specific installation helpers are not implemented. The OpenAI provider path is implemented and offline-tested, but no paid API trial has been executed or verified in this repository. The current trajectory candidates are handcrafted fixtures. The next practical step is to freeze the selected model snapshot and prompt, expand to the planned 10 applications and 40 checkpoints, and record real-model trials without exposing evaluation tests.
+Pure functions currently use scalar values and support immutable local bindings followed by a return expression; there are no general statements, reassignment or mutable locals, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Capability Operations currently accept no arguments and are injected as precomputed scalar values, so HTTP/File calls, async I/O, retries, and secret policies are not implemented. Keyless Entity changes still use full replacement. Patch operations edit definitions in the root source file only, use the currently supported semantic member paths, and canonical formatting may not preserve comments inside changed definitions. The MCP adapter currently supports local stdio only; remote HTTP transport, authentication, Resources, Prompts, and editor-specific installation helpers are not implemented. The OpenAI provider path is implemented and offline-tested, but no paid API trial has been executed or verified in this repository. The current trajectory candidates are handcrafted fixtures. The next practical step is to freeze the selected model snapshot and prompt, expand to the planned 10 applications and 40 checkpoints, and record real-model trials without exposing evaluation tests.

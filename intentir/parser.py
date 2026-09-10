@@ -17,6 +17,8 @@ from intentir.ir import (
     ProgramSpec,
     TestSpec,
 )
+from intentir.pure import parse_function_binding
+from intentir.expressions import ExpressionError
 
 
 class ParseError(ValueError):
@@ -175,6 +177,8 @@ def parse_function(lines: list["Line"], index: int) -> tuple[FunctionSpec, int]:
     return_type: str | None = None
     body: str | None = None
     examples: list[str] = []
+    bindings: list[str] = []
+    let_seen = False
 
     index += 1
     while index < len(lines) and lines[index].indent > 0:
@@ -199,7 +203,7 @@ def parse_function(lines: list["Line"], index: int) -> tuple[FunctionSpec, int]:
                 raise ParseError(f"function body is required on line {section.number}")
             index += 1
             continue
-        if section.text not in {"input:", "examples:"}:
+        if section.text not in {"input:", "let:", "examples:"}:
             raise ParseError(
                 f"unknown function section on line {section.number}: {section.text}"
             )
@@ -217,6 +221,18 @@ def parse_function(lines: list["Line"], index: int) -> tuple[FunctionSpec, int]:
             index += 1
         if section_name == "input":
             inputs.extend(parse_field(value, number) for value, number in values)
+        elif section_name == "let":
+            if let_seen:
+                raise ParseError(f"duplicate function let on line {section.number}")
+            if not values:
+                raise ParseError(f"function let section cannot be empty on line {section.number}")
+            let_seen = True
+            for value, number in values:
+                try:
+                    binding_name, expression = parse_function_binding(value)
+                except ExpressionError as error:
+                    raise ParseError(f"{error} on line {number}") from error
+                bindings.append(f"{binding_name} = {expression}")
         else:
             examples.extend(value for value, _number in values)
 
@@ -224,7 +240,9 @@ def parse_function(lines: list["Line"], index: int) -> tuple[FunctionSpec, int]:
         raise ParseError(f"function {name} is missing returns")
     if body is None:
         raise ParseError(f"function {name} is missing body")
-    return FunctionSpec(name, inputs, return_type, body, examples), index
+    return FunctionSpec(
+        name, inputs, return_type, body, examples, bindings=bindings
+    ), index
 
 
 def parse_action(lines: list["Line"], index: int) -> tuple[ActionSpec, int]:

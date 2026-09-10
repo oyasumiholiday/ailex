@@ -96,7 +96,29 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
         self.assertNotIn("priority defaults to zero", serialized_request)
         self.assertIn(
             "expectedId",
-            request["outputContract"]["operations"]["insert_member"],
+            request["outputContract"]["candidate"]["operations"]["insert_member"],
+        )
+        self.assertEqual(
+            request["languageReference"]["syntax"]["updateEffect"],
+            (
+                "update <Entity> where <field> equals input.<field> "
+                "set <field> = <value>"
+            ),
+        )
+        candidate_contract = request["outputContract"]["candidate"]
+        self.assertEqual(
+            candidate_contract["allowedTopLevelFields"],
+            [
+                "schemaVersion",
+                "baseModuleId",
+                "operations",
+                "requestedObligations",
+            ],
+        )
+        self.assertNotIn("kind", candidate_contract["allowedTopLevelFields"])
+        self.assertNotIn(
+            "contentGuards",
+            candidate_contract["allowedTopLevelFields"],
         )
         adapter = ExternalCommandModelAdapter(
             [
@@ -122,6 +144,93 @@ class IntentBenchTrajectoryTest(unittest.TestCase):
         self.assertEqual(
             result["summary"]["failuresByCode"],
             {"model_response_request_mismatch": 1},
+        )
+
+    def test_model_output_contracts_define_headers_and_target_references(self) -> None:
+        ir = compile_source(DEMO_SOURCE)
+
+        unified = build_model_request(
+            suite="adapter-test",
+            application="work-item",
+            checkpoint=1,
+            checkpoint_id="add-priority",
+            condition="unified-diff",
+            instruction="Add priority.",
+            source=DEMO_SOURCE,
+            ir=ir,
+        )["outputContract"]
+        self.assertEqual(
+            unified["candidate"]["requiredFileHeaders"],
+            ["--- a/workspace.intent", "+++ b/workspace.intent"],
+        )
+        self.assertEqual(
+            unified["candidate"]["optionalGitHeader"],
+            "diff --git a/workspace.intent b/workspace.intent",
+        )
+        self.assertEqual(
+            unified["candidate"]["hunkHeaderFormat"],
+            "@@ -<oldStart>,<oldCount> +<newStart>,<newCount> @@",
+        )
+        self.assertEqual(
+            unified["candidate"]["hunkContext"],
+            {
+                "minimumUnchangedLinesBefore": 1,
+                "minimumUnchangedLinesAfter": 1,
+                "linePrefix": " ",
+                "boundaryException": (
+                    "omit only when the change is at the start or end of file"
+                ),
+            },
+        )
+
+        structure = build_model_request(
+            suite="adapter-test",
+            application="work-item",
+            checkpoint=1,
+            checkpoint_id="add-priority",
+            condition="structure-edit",
+            instruction="Add priority.",
+            source=DEMO_SOURCE,
+            ir=ir,
+        )["outputContract"]
+        self.assertEqual(
+            structure["candidate"]["targetReferences"]["existingDefinition"],
+            ["context.nodes[].symbol", "context.nodes[].id"],
+        )
+        self.assertEqual(
+            structure["candidate"]["memberCollectionsByTargetKind"]["entity"],
+            ["fields"],
+        )
+        self.assertEqual(
+            structure["candidate"]["memberValueContracts"]["fields"][
+                "objectRequired"
+            ],
+            ["name", "type"],
+        )
+        self.assertEqual(
+            structure["candidate"]["operationDiscriminator"],
+            {
+                "field": "kind",
+                "meaning": "operation kind, never the target definition kind",
+                "allowedValues": [
+                    "add_definition",
+                    "insert_member",
+                    "remove_definition",
+                    "remove_member",
+                    "rename_symbol",
+                    "replace_definition",
+                    "set_member",
+                ],
+                "targetDefinitionKindLocation": "the prefix of target before ':'",
+            },
+        )
+        self.assertEqual(
+            structure["candidate"]["operationExample"]["kind"],
+            "insert_member",
+        )
+        self.assertNotIn(
+            "WorkItem",
+            json.dumps(structure["candidate"]["operationExample"]),
         )
 
 

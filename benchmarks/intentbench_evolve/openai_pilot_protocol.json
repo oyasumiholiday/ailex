@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "0.1.0",
+  "id": "intentbench-evolve-openai-pilot-2026-07-22",
+  "manifest": "model_trajectory_manifest.json",
+  "conditions": ["full-file", "unified-diff", "structure-edit", "intent-patch"],
+  "provider": "openai-responses",
+  "model": "gpt-5.4-mini-2026-03-17",
+  "reasoningEffort": "medium",
+  "maxOutputTokens": 4096,
+  "requestTimeoutSeconds": 120,
+  "trials": 1,
+  "budgetUsd": "1.00",
+  "maxRequestBytesPerCall": 32000,
+  "reservedInputTokensPerCall": 32000,
+  "pricing": {
+    "currency": "USD",
+    "inputPerMillionTokens": "0.75",
+    "outputPerMillionTokens": "4.50",
+    "observedAt": "2026-07-22",
+    "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.4-mini"
+  }
+}

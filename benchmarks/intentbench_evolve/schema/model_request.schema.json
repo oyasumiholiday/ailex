@@ -15,6 +15,7 @@
     "instruction",
     "source",
     "context",
+    "languageReference",
     "outputContract"
   ],
   "properties": {
@@ -37,6 +38,26 @@
         "nodes": {"type": "array", "items": {"type": "object"}}
       }
     },
-    "outputContract": {"type": "object"}
+    "languageReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "syntax", "rules"],
+      "properties": {
+        "id": {"const": "intentir-benchmark-subset-0.1.0"},
+        "syntax": {"type": "object"},
+        "rules": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "outputContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interface", "candidate"],
+      "properties": {
+        "interface": {
+          "enum": ["full-file", "unified-diff", "structure-edit", "intent-patch"]
+        },
+        "candidate": {"type": "object"}
+      }
+    }
   }
 }

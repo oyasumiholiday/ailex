@@ -34,6 +34,8 @@ Agent Toolの本体は外部依存のない`AgentService`です。`intentir agen
 
 実Provider参照実装として、Python標準LibraryだけでOpenAI Responses APIへ接続する`intentir-openai-adapter`を追加しました。Strict Structured OutputsでCandidateを受け取り、API Keyは環境変数からのみ読みます。ResultにはToken、Provider Response ID、要求/実Model、Prompt/Configuration Hash、Reasoning設定を保存し、失敗を段階別に集計します。Network部分はFake Responseで検証済みですが、実API Trialはまだ実施していません。詳細は [OPENAI_PROVIDER_VALIDATION_REPORT_JA.md](OPENAI_PROVIDER_VALIDATION_REPORT_JA.md) にまとめています。
 
+2026-07-22には、課金事故と再現性不足を防ぐ`intentir pilot`を追加しました。日付固定Model Snapshot、4条件、最大16 call、Reasoning設定、価格観測日、1.00 USD上限をJSON Protocolへ固定します。既定動作はNetworkを使わない事前確認で、課金実行には`--execute`、上限額の一致確認、API Key、新規出力Directoryの4条件が必要です。Fake Providerで16 call分のRequest、Candidate、Token、費用、結果の逐次保存を検証済みです。実API Trialは未実施です。詳細は [PILOT_EXPERIMENT_PROTOCOL_JA.md](PILOT_EXPERIMENT_PROTOCOL_JA.md) を参照してください。
+
 ### 内容ハッシュで保護されたIntentPatch
 
 `schemaVersion / baseModuleId / operations / requestedObligations`を持つJSON Envelopeで、AIが定義またはメンバー単位の変更を提案できます。`add_definition`、`replace_definition`、`remove_definition`、`rename_symbol`、`set_member`、`insert_member`、`remove_member`の7操作を実装しました。
@@ -95,6 +97,8 @@ entity Task:
 
 Functionは型付きInput、Return型、単一の純粋式Body、実行可能Exampleを持ちます。
 
+Functionには任意の`let:` Sectionを置き、`name = pure_expression`形式の不変Local Bindingを宣言できます。InitializerはInputと先行Bindingだけを参照でき、宣言順に一度ずつ評価され、Scalar型を推論します。Inputや先行LocalのShadow、予約語、自己参照・前方参照は拒否します。
+
 ```intentir
 function Clamp:
   input:
@@ -111,10 +115,11 @@ BodyはPython ASTを直接実行せず、許可したNodeだけを次の構造�
 
 - Scalar literalとInput変数
 - `+ / - / * / / / // / %`
-- `== / != / < / <= / > / >=`
+- `== / != / < / <= / > / >=`の単一比較とPython形式のchain comparison
 - `and / or / not`と単項符号
 - Python形式の条件式
 - 位置引数・名前付き引数による純粋Function呼出し
+- 順序付きの不変Local Binding（IRではnested `let`式）
 
 Function BodyとExampleには内容アドレスが付き、Function間呼出しは`calls` Edge、Exampleは検証義務になります。Input、Return、Operand、呼出し引数を静的に型検証し、再帰Cycleは終了性義務を導入するまで拒否します。
 
@@ -392,6 +397,9 @@ Formatterは同じ入力に繰り返し適用しても結果が変わらず、�
 - `intentir/benchmark.py`: Manifest自動判別、4 Adapter、共通評価、Result集計
 - `BENCHMARK_VALIDATION_REPORT_JA.md`: Harness、Trajectory、Model Adapterの検証結果と限界
 - `OPENAI_PROVIDER_VALIDATION_REPORT_JA.md`: Provider Wrapper、Provenance、安全性、未検証範囲
+- `OPENAI_CALIBRATION_V3_RESULT_2026-07-24_JA.md`: 実モデル校正v3の結果、費用、残存契約ギャップ
+- `OPENAI_CALIBRATION_V4_PLAN_2026-07-24_JA.md`: diff Context、操作種別、Prompt固定を検証する校正v4計画
+- `OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md`: 4条件16/16完走、費用、校正終了判断
 - `docs/SECURITY_QUALITY_REVIEW_CRITERIA_JA.md`: 改変しない完全版Review基準
 - `SECURITY.md`: 脆弱性の非公開報告方針
 - `AILEX_README.md`: Ailex表層言語の概要、利用方法、研究上の根拠
@@ -404,7 +412,7 @@ Formatterは同じ入力に繰り返し適用しても結果が変わらず、�
 - `LICENSE`: Ailex既存実装のMIT License
 - `LICENSE-APACHE`: IntentIR Python Packageと新規関連FileのApache License 2.0全文
 - `tests/test_agent.py` / `tests/test_mcp_server.py`: Agent接続の自動テスト
-- `tests/`: 合計91件の自動テスト
+- `tests/`: 合計116件の自動テスト
 
 ## 検証済み
 
@@ -437,7 +445,7 @@ python3 -m intentir benchmark-model benchmarks/intentbench_evolve/model_trajecto
 python3 -m intentir examples/todo.intent --emit verify
 ```
 
-Ailexは89件の適合Testが成功します。IntentIRの自動Testは91件です。90件は外部依存なしで実行でき、1件はoptional MCP環境でTool discovery、入力・出力Schema、stdio実呼出し、構造化失敗を検証します。Benchmark境界、4段階Trajectory、Model Adapter契約、OpenAI ProviderのOffline Response、Provenance、失敗分類、二Agent競合Demo、従来のPatch、Capability、Module Link、Entity参照、部分SQL、Migration、旧DB互換、SQLite永続化も引き続き含みます。
+Ailexは89件の適合Testが成功します。IntentIRの自動Testは116件です。115件は外部依存なしで実行でき、1件はoptional MCP環境でTool discovery、入力・出力Schema、stdio実呼出し、構造化失敗を検証します。連鎖比較と不変Local bindingに加え、Budget-guarded Pilotの16 call Offline実行とArtifact/秘密情報検査、校正v3のdiff Context・structure operation誤りの回帰ケース、Prompt version不一致の通信前拒否、Patch member Collectionの修復scope、OpenAI TLS CA優先順位と証明書診断、Benchmark境界、4段階Trajectory、Model Adapter契約、OpenAI ProviderのOffline Response、Provenance、失敗分類、二Agent競合Demo、従来のPatch、Capability、Module Link、Entity参照、部分SQL、Migration、旧DB互換、SQLite永続化も引き続き含みます。
 
 セキュリティ・品質の運用基準と初回確認結果は、[SECURITY_QUALITY_CHECKLIST_JA.md](SECURITY_QUALITY_CHECKLIST_JA.md) と [SECURITY_QUALITY_BASELINE_2026-07-21_JA.md](SECURITY_QUALITY_BASELINE_2026-07-21_JA.md) に分離しました。AilexのMIT Licenseを保持したままIntentIRをApache-2.0として分離し、CommitとGit remoteでRollback点を固定しました。PR #3の全CI、Secret scanning、Push protection、Private Vulnerability Reporting、`main`保護、隔離venvへのwheel導入は確認済みです。Package ReleaseはPRのReview・MergeとRelease Tag作成まで保留し、MCP書込みはHost側の承認・監査を確認するまで無効のまま運用します。
 
@@ -445,7 +453,7 @@ Ailexは89件の適合Testが成功します。IntentIRの自動Testは91件で�
 
 まだ次の要素はありません。
 
-- Statement、Local変数、Collection、Pattern matching、Loop
+- Statement、既存Localへの再代入・可変Local、Collection、Pattern matching、Loop
 - 再帰Functionと終了性検証
 - Import alias、private export、package manifest、registry、version constraint
 - Capability Operationへの引数と実際の外部I/O実行
@@ -459,7 +467,7 @@ Ailexは89件の適合Testが成功します。IntentIRの自動Testは91件で�
 - 変更した定義内のコメントはCanonical Formatで保持されない場合がある
 - MCP接続はLocal stdioのみで、Remote HTTP、認証、Resource、Promptは未実装
 - 書込み有効時の利用者承認UIと永続監査LogはHost側で未確認
-- OpenAI Provider Wrapperは実装済みだが、実API疎通、Account権限、Cost、Rate limitは未検証
-- TrajectoryはHandcraftedな1 Applicationだけで、実Modelを使う40 Checkpoint Pilotは未実施
+- OpenAI Provider Wrapperの実API疎通、Account権限、Token/Cost計上は少額校正で確認済みだが、Rate limit、Retry、長時間運転は未検証
+- 実モデル校正は同じ1 Applicationの反復で、未使用課題を使う40 Checkpoint本評価は未実施
 
-したがって、現時点でGoやPythonを置き換えるものではありません。次はModel Snapshot、Prompt、Budgetを固定した少額実API Pilotを行い、その後10 Application x 4変更の40 Checkpointへ拡張します。そこで実測Evidenceを作った後、引数付きCapability、Package境界、Relation Queryへ進むのが妥当です。
+したがって、現時点でGoやPythonを置き換えるものではありません。校正v4では4編集条件すべてが4/4を完走し、同一課題上の契約校正は完了しました。これは一般化性能を示さないため、次は課金なしで未使用の10 Application x 4変更を固定し、その後に最大160 callの40 Checkpoint本評価を別承認で行います。そこで実測Evidenceを作った後、引数付きCapability、Package境界、Relation Queryへ進むのが妥当です。

@@ -2,7 +2,7 @@
   "schemaVersion": "0.1.0",
   "suite": "intentbench-evolve-model-trajectory-smoke",
   "description": "A candidate-free trajectory manifest for external model adapters.",
-  "conditions": ["intent-patch"],
+  "conditions": ["full-file", "unified-diff", "structure-edit", "intent-patch"],
   "applications": [
     {
       "id": "work-item",
