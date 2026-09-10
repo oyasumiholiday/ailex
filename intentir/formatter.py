@@ -57,6 +57,7 @@ def format_function(function: FunctionSpec) -> str:
     lines = [f"function {function.name}:"]
     append_section(lines, "input", [format_field(field) for field in function.inputs])
     lines.append(f"  returns: {function.return_type}")
+    append_section(lines, "let", function.bindings)
     lines.append(f"  body: {function.body}")
     append_section(lines, "examples", function.examples)
     return "\n".join(lines)

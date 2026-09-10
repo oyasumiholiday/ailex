@@ -97,6 +97,8 @@ entity Task:
 
 Functionは型付きInput、Return型、単一の純粋式Body、実行可能Exampleを持ちます。
 
+Functionには任意の`let:` Sectionを置き、`name = pure_expression`形式の不変Local Bindingを宣言できます。InitializerはInputと先行Bindingだけを参照でき、宣言順に一度ずつ評価され、Scalar型を推論します。Inputや先行LocalのShadow、予約語、自己参照・前方参照は拒否します。
+
 ```intentir
 function Clamp:
   input:
@@ -113,10 +115,11 @@ BodyはPython ASTを直接実行せず、許可したNodeだけを次の構造�
 
 - Scalar literalとInput変数
 - `+ / - / * / / / // / %`
-- `== / != / < / <= / > / >=`
+- `== / != / < / <= / > / >=`の単一比較とPython形式のchain comparison
 - `and / or / not`と単項符号
 - Python形式の条件式
 - 位置引数・名前付き引数による純粋Function呼出し
+- 順序付きの不変Local Binding（IRではnested `let`式）
 
 Function BodyとExampleには内容アドレスが付き、Function間呼出しは`calls` Edge、Exampleは検証義務になります。Input、Return、Operand、呼出し引数を静的に型検証し、再帰Cycleは終了性義務を導入するまで拒否します。
 
@@ -409,7 +412,7 @@ Formatterは同じ入力に繰り返し適用しても結果が変わらず、�
 - `LICENSE`: Ailex既存実装のMIT License
 - `LICENSE-APACHE`: IntentIR Python Packageと新規関連FileのApache License 2.0全文
 - `tests/test_agent.py` / `tests/test_mcp_server.py`: Agent接続の自動テスト
-- `tests/`: 合計101件の自動テスト
+- `tests/`: 合計116件の自動テスト
 
 ## 検証済み
 
@@ -442,7 +445,7 @@ python3 -m intentir benchmark-model benchmarks/intentbench_evolve/model_trajecto
 python3 -m intentir examples/todo.intent --emit verify
 ```
 
-Ailexは89件の適合Testが成功します。IntentIRの自動Testは101件です。100件は外部依存なしで実行でき、1件はoptional MCP環境でTool discovery、入力・出力Schema、stdio実呼出し、構造化失敗を検証します。Budget-guarded Pilotの16 call Offline実行とArtifact/秘密情報検査、校正v3のdiff Context・structure operation誤りの回帰ケース、Prompt version不一致の通信前拒否、Patch member Collectionの修復scope、OpenAI TLS CA優先順位と証明書診断、Benchmark境界、4段階Trajectory、Model Adapter契約、OpenAI ProviderのOffline Response、Provenance、失敗分類、二Agent競合Demo、従来のPatch、Capability、Module Link、Entity参照、部分SQL、Migration、旧DB互換、SQLite永続化も引き続き含みます。
+Ailexは89件の適合Testが成功します。IntentIRの自動Testは116件です。115件は外部依存なしで実行でき、1件はoptional MCP環境でTool discovery、入力・出力Schema、stdio実呼出し、構造化失敗を検証します。連鎖比較と不変Local bindingに加え、Budget-guarded Pilotの16 call Offline実行とArtifact/秘密情報検査、校正v3のdiff Context・structure operation誤りの回帰ケース、Prompt version不一致の通信前拒否、Patch member Collectionの修復scope、OpenAI TLS CA優先順位と証明書診断、Benchmark境界、4段階Trajectory、Model Adapter契約、OpenAI ProviderのOffline Response、Provenance、失敗分類、二Agent競合Demo、従来のPatch、Capability、Module Link、Entity参照、部分SQL、Migration、旧DB互換、SQLite永続化も引き続き含みます。
 
 セキュリティ・品質の運用基準と初回確認結果は、[SECURITY_QUALITY_CHECKLIST_JA.md](SECURITY_QUALITY_CHECKLIST_JA.md) と [SECURITY_QUALITY_BASELINE_2026-07-21_JA.md](SECURITY_QUALITY_BASELINE_2026-07-21_JA.md) に分離しました。AilexのMIT Licenseを保持したままIntentIRをApache-2.0として分離し、CommitとGit remoteでRollback点を固定しました。PR #3の全CI、Secret scanning、Push protection、Private Vulnerability Reporting、`main`保護、隔離venvへのwheel導入は確認済みです。Package ReleaseはPRのReview・MergeとRelease Tag作成まで保留し、MCP書込みはHost側の承認・監査を確認するまで無効のまま運用します。
 
@@ -450,7 +453,7 @@ Ailexは89件の適合Testが成功します。IntentIRの自動Testは101件で
 
 まだ次の要素はありません。
 
-- Statement、Local変数、Collection、Pattern matching、Loop
+- Statement、既存Localへの再代入・可変Local、Collection、Pattern matching、Loop
 - 再帰Functionと終了性検証
 - Import alias、private export、package manifest、registry、version constraint
 - Capability Operationへの引数と実際の外部I/O実行
