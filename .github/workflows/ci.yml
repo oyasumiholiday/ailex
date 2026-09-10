@@ -72,6 +72,15 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Build wheel
         run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Test installed wheel outside checkout
+        shell: bash
+        run: |
+          venv="$RUNNER_TEMP/intentir-wheel-smoke"
+          python -m venv "$venv"
+          "$venv/bin/python" -m pip install --no-deps dist/*.whl
+          cd "$RUNNER_TEMP"
+          unset PYTHONPATH
+          "$venv/bin/intentir" demo concurrent-agent --json
 
   mcp:
     name: Optional MCP stdio
