@@ -10,12 +10,16 @@ from intentir.benchmark import BENCHMARK_CONDITIONS, BenchmarkError
 from intentir.canonical import content_address
 from intentir.model_adapter import ModelAdapterError
 from intentir.providers.openai_responses import (
+    OPENAI_INPUT_TOKENS_URL,
     PROMPT_VERSION,
+    InputTokenCounter,
     OpenAIProviderError,
     OpenAIResponsesConfig,
     ProviderSender,
+    _generate_adapter_response_from_prepared,
     build_api_payload,
-    generate_adapter_response,
+    build_input_token_count_payload,
+    count_response_input_tokens,
 )
 from intentir.trajectory import _load_trajectory_manifest, run_trajectory_manifest
 
@@ -50,6 +54,7 @@ DECIMAL_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)?$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PILOT_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 MILLION = Decimal(1_000_000)
+BUDGET_GUARD_VERSION = "intentir-pilot-budget-guard-v1"
 
 
 class PilotError(ValueError):
@@ -61,6 +66,10 @@ class PilotError(ValueError):
 
     def to_dict(self) -> dict[str, str]:
         return {"code": self.code, "message": self.message, "path": self.path}
+
+
+class PilotGuardError(ModelAdapterError):
+    abort_batch = True
 
 
 def load_pilot_protocol(path: Path | str) -> dict[str, Any]:
@@ -279,6 +288,7 @@ def preflight_pilot(path: Path | str) -> dict[str, Any]:
         "ok": True,
         "mode": "pilot-preflight",
         "willCallProvider": False,
+        "budgetGuardVersion": BUDGET_GUARD_VERSION,
         "protocolId": protocol["id"],
         "protocolHash": loaded["protocolHash"],
         "manifest": protocol["manifest"],
@@ -288,6 +298,12 @@ def preflight_pilot(path: Path | str) -> dict[str, Any]:
         "reasoningEffort": protocol["reasoningEffort"],
         "trials": protocol["trials"],
         "maximumCalls": loaded["maximumCalls"],
+        "providerRequestPlan": {
+            "maximumGenerationRequests": loaded["maximumCalls"],
+            "maximumInputTokenCountRequests": loaded["maximumCalls"],
+            "inputTokenCountRequestsAreAdditional": True,
+            "inputTokenCountEndpoint": OPENAI_INPUT_TOKENS_URL,
+        },
         "budget": {
             "currency": "USD",
             "limitUsd": protocol["budgetUsd"],
@@ -296,6 +312,9 @@ def preflight_pilot(path: Path | str) -> dict[str, Any]:
                 loaded["maximumReservedCost"]
             ),
             "pricingObservedAt": protocol["pricing"]["observedAt"],
+            "accountingBasis": "fixed-protocol-token-prices",
+            "actualAccountBillGuaranteed": False,
+            "inputTokenCountRequestCostsIncluded": False,
         },
         "executionGuards": [
             "--execute is required",
@@ -303,6 +322,8 @@ def preflight_pilot(path: Path | str) -> dict[str, Any]:
             "OPENAI_API_KEY must be present",
             "the output directory must not already exist",
             "provider retries are disabled",
+            "each generation requires a successful input-token count request",
+            "input-token count requests are additional provider transmissions",
         ],
     }
 
@@ -315,12 +336,14 @@ class BudgetedOpenAIAdapter:
         record_directory: Path,
         *,
         sender: ProviderSender | None = None,
+        counter: InputTokenCounter | None = None,
     ) -> None:
         protocol = loaded["protocol"]
         self.loaded = loaded
         self.api_key = api_key
         self.record_directory = record_directory
         self.sender = sender
+        self.counter = counter
         self.config = OpenAIResponsesConfig(
             model=protocol["model"],
             reasoning_effort=protocol["reasoningEffort"],
@@ -328,12 +351,15 @@ class BudgetedOpenAIAdapter:
             request_timeout_seconds=protocol["requestTimeoutSeconds"],
         )
         self.accounted_cost = Decimal(0)
+        self.provider_calls = 0
+        self.token_count_calls = 0
         self.records: list[dict[str, Any]] = []
         self.trial = 0
 
     def generate(self, request: dict[str, Any]) -> dict[str, Any]:
         protocol = self.loaded["protocol"]
-        payload, prompt_id, configuration_id = build_api_payload(request, self.config)
+        prepared_payload = build_api_payload(request, self.config)
+        payload, prompt_id, configuration_id = prepared_payload
         request_bytes = len(
             json.dumps(
                 payload,
@@ -342,44 +368,144 @@ class BudgetedOpenAIAdapter:
                 sort_keys=True,
             ).encode("utf-8")
         )
-        if request_bytes > protocol["maxRequestBytesPerCall"]:
-            raise ModelAdapterError(
-                "pilot_request_too_large",
-                "provider request exceeded maxRequestBytesPerCall",
-                "/pilot/maxRequestBytesPerCall",
-            )
         reservation = self.loaded["reservationPerCall"]
-        if self.accounted_cost + reservation > self.loaded["budget"]:
-            raise ModelAdapterError(
-                "pilot_budget_exhausted",
-                "the next reserved call would exceed budgetUsd",
-                "/pilot/budgetUsd",
-            )
-
         sequence = len(self.records) + 1
         record: dict[str, Any] = {
             "schemaVersion": PILOT_SCHEMA_VERSION,
+            "budgetGuardVersion": BUDGET_GUARD_VERSION,
             "sequence": sequence,
             "trial": self.trial,
-            "status": "started",
+            "status": "guard-started",
             "requestBytes": request_bytes,
             "reservedCostUsd": _decimal_text(reservation),
+            "reservedInputTokens": protocol["reservedInputTokensPerCall"],
+            "reservedOutputTokens": protocol["maxOutputTokens"],
             "promptId": prompt_id,
             "configurationId": configuration_id,
             "request": request,
             "providerPayload": payload,
+            "inputTokenCountDispatched": False,
+            "generationDispatched": False,
         }
         record_path = self.record_directory / f"{sequence:04d}.json"
         _write_json(record_path, record)
+
+        if self.provider_calls >= self.loaded["maximumCalls"]:
+            self._reject_guard(
+                record,
+                "maximum-calls-rejected",
+                "pilot_maximum_calls_exceeded",
+                "maximumCalls was reached before generation dispatch",
+                "/pilot/maximumCalls",
+            )
+        if request_bytes > protocol["maxRequestBytesPerCall"]:
+            self._reject_guard(
+                record,
+                "request-size-rejected",
+                "pilot_request_too_large",
+                "provider request exceeded maxRequestBytesPerCall",
+                "/pilot/maxRequestBytesPerCall",
+            )
+        if self.accounted_cost + reservation > self.loaded["budget"]:
+            self._reject_guard(
+                record,
+                "budget-reservation-rejected",
+                "pilot_budget_exhausted",
+                "the next reserved call would exceed budgetUsd",
+                "/pilot/budgetUsd",
+            )
+        if self.sender is not None and self.counter is None:
+            self._reject_guard(
+                record,
+                "input-token-counter-required",
+                "pilot_input_token_counter_required",
+                "an injected sender requires an explicit input-token counter",
+                "/pilot/inputTokenCounter",
+            )
+
+        count_payload = build_input_token_count_payload(payload)
+        count_payload_hash = content_address(
+            {
+                "kind": "openai_responses_input_token_count_payload",
+                "payload": count_payload,
+            }
+        )
+        record["inputTokenCount"] = {
+            "endpoint": OPENAI_INPUT_TOKENS_URL,
+            "payload": count_payload,
+            "payloadHash": count_payload_hash,
+        }
+        record["status"] = "input-token-count-started"
+        record["inputTokenCountDispatched"] = True
+        self.token_count_calls += 1
+        _write_json(record_path, record)
         try:
-            response = generate_adapter_response(
+            input_tokens, sent_count_payload = count_response_input_tokens(
+                payload,
+                self.config,
+                self.api_key,
+                counter=self.counter,
+            )
+        except OpenAIProviderError as error:
+            record.update(
+                {
+                    "status": "input-token-count-error",
+                    "diagnostic": {"code": error.code, "message": error.message},
+                }
+            )
+            self._record(record)
+            raise PilotGuardError(
+                error.code,
+                error.message,
+                "/provider/inputTokens",
+            ) from error
+        if sent_count_payload != count_payload:
+            self._reject_guard(
+                record,
+                "input-token-payload-mismatch",
+                "pilot_input_token_payload_mismatch",
+                "count payload did not match the prepared generation payload",
+                "/pilot/inputTokenCount",
+            )
+        record["inputTokenCount"]["inputTokens"] = input_tokens
+        if input_tokens > protocol["reservedInputTokensPerCall"]:
+            self._reject_guard(
+                record,
+                "input-token-reservation-rejected",
+                "pilot_input_token_reservation_exceeded",
+                "counted input tokens exceeded reservedInputTokensPerCall",
+                "/pilot/reservedInputTokensPerCall",
+            )
+        if build_input_token_count_payload(payload) != count_payload:
+            self._reject_guard(
+                record,
+                "input-token-payload-mismatch",
+                "pilot_input_token_payload_mismatch",
+                "prepared generation payload changed after input-token counting",
+                "/pilot/inputTokenCount",
+            )
+
+        self.accounted_cost += reservation
+        self.provider_calls += 1
+        record.update(
+            {
+                "status": "generation-started",
+                "generationDispatched": True,
+                "accountingMode": "reserved-before-dispatch",
+                "accountedCostUsd": _decimal_text(reservation),
+                "cumulativeAccountedCostUsd": _decimal_text(self.accounted_cost),
+            }
+        )
+        _write_json(record_path, record)
+        try:
+            response = _generate_adapter_response_from_prepared(
                 request,
                 self.config,
                 self.api_key,
+                prepared_payload,
                 sender=self.sender,
             )
         except OpenAIProviderError as error:
-            self.accounted_cost += reservation
             record.update(
                 {
                     "status": "provider-error",
@@ -395,18 +521,46 @@ class BudgetedOpenAIAdapter:
             raise ModelAdapterError(error.code, error.message, "/provider") from error
 
         usage = response["usage"]
-        if usage["inputTokens"] is None or usage["outputTokens"] is None:
-            call_cost = reservation
-            accounting_mode = "reserved-upper-bound"
-        else:
-            call_cost = _token_cost(
-                usage["inputTokens"],
-                usage["outputTokens"],
+        input_tokens = usage["inputTokens"]
+        output_tokens = usage["outputTokens"]
+        usage_violation = (
+            input_tokens is not None
+            and input_tokens > protocol["reservedInputTokensPerCall"]
+        ) or (
+            output_tokens is not None
+            and output_tokens > protocol["maxOutputTokens"]
+        )
+        if input_tokens is not None and output_tokens is not None:
+            provider_usage_cost = _token_cost(
+                input_tokens,
+                output_tokens,
                 self.loaded["inputPrice"],
                 self.loaded["outputPrice"],
             )
+            call_cost = (
+                max(reservation, provider_usage_cost)
+                if usage_violation
+                else provider_usage_cost
+            )
             accounting_mode = "provider-usage"
-        self.accounted_cost += call_cost
+        else:
+            partial_usage_upper_bound = _token_cost(
+                (
+                    input_tokens
+                    if input_tokens is not None
+                    else protocol["reservedInputTokensPerCall"]
+                ),
+                (
+                    output_tokens
+                    if output_tokens is not None
+                    else protocol["maxOutputTokens"]
+                ),
+                self.loaded["inputPrice"],
+                self.loaded["outputPrice"],
+            )
+            call_cost = max(reservation, partial_usage_upper_bound)
+            accounting_mode = "reserved-bounds-partial-usage-estimate"
+        self.accounted_cost += call_cost - reservation
         record.update(
             {
                 "status": "completed",
@@ -416,10 +570,26 @@ class BudgetedOpenAIAdapter:
                 "response": response,
             }
         )
+        if usage_violation:
+            record["status"] = "usage-reservation-violation"
+            record["diagnostic"] = {
+                "code": "pilot_usage_reservation_exceeded",
+                "message": "provider usage exceeded reserved token bounds",
+            }
+            self._record(record)
+            raise PilotGuardError(
+                "pilot_usage_reservation_exceeded",
+                "provider usage exceeded reserved token bounds",
+                "/response/usage",
+            )
         if response["model"] != protocol["model"]:
             record["status"] = "model-mismatch"
+            record["diagnostic"] = {
+                "code": "pilot_model_mismatch",
+                "message": "provider response model did not match the pinned snapshot",
+            }
             self._record(record)
-            raise ModelAdapterError(
+            raise PilotGuardError(
                 "pilot_model_mismatch",
                 "provider response model did not match the pinned snapshot",
                 "/response/model",
@@ -427,13 +597,26 @@ class BudgetedOpenAIAdapter:
         if self.accounted_cost > self.loaded["budget"]:
             record["status"] = "budget-exceeded"
             self._record(record)
-            raise ModelAdapterError(
+            raise PilotGuardError(
                 "pilot_budget_exceeded",
                 "provider usage exceeded the fixed pilot budget",
                 "/pilot/budgetUsd",
             )
         self._record(record)
         return response
+
+    def _reject_guard(
+        self,
+        record: dict[str, Any],
+        status: str,
+        code: str,
+        message: str,
+        path: str,
+    ) -> None:
+        record["status"] = status
+        record["diagnostic"] = {"code": code, "message": message}
+        self._record(record)
+        raise PilotGuardError(code, message, path)
 
     def _record(self, record: dict[str, Any]) -> None:
         self.records.append(record)
@@ -450,6 +633,7 @@ def run_pilot(
     confirm_budget_usd: str | None,
     api_key: str,
     sender: ProviderSender | None = None,
+    counter: InputTokenCounter | None = None,
 ) -> dict[str, Any]:
     loaded = load_pilot_protocol(path)
     try:
@@ -472,6 +656,12 @@ def run_pilot(
             "OPENAI_API_KEY is required only for an executed pilot",
             "/environment/OPENAI_API_KEY",
         )
+    if sender is not None and counter is None:
+        raise PilotError(
+            "pilot_input_token_counter_required",
+            "an injected sender requires an explicit offline input-token counter",
+            "/inputTokenCounter",
+        )
 
     output_path = Path(output_directory).expanduser().resolve()
     if output_path.exists():
@@ -492,6 +682,7 @@ def run_pilot(
         api_key,
         calls_path,
         sender=sender,
+        counter=counter,
     )
     trial_results = []
     for trial in range(1, loaded["protocol"]["trials"] + 1):
@@ -522,7 +713,20 @@ def run_pilot(
         "conditions": loaded["protocol"]["conditions"],
         "trialsPlanned": loaded["protocol"]["trials"],
         "trialsCompleted": len(trial_results),
-        "providerCalls": len(adapter.records),
+        "providerCalls": adapter.provider_calls,
+        "tokenCountCalls": adapter.token_count_calls,
+        "provenance": {
+            "budgetGuardVersion": BUDGET_GUARD_VERSION,
+            "inputTokenCountEndpoint": OPENAI_INPUT_TOKENS_URL,
+            "inputTokenCountCompatibility": "live-unverified",
+            "inputTokenCountRequestsAreAdditional": True,
+            "budgetAccountingBasis": "fixed-protocol-token-prices",
+            "partialUsageAccounting": (
+                "estimated-from-reserved-bounds-conditional-on-service-caps"
+            ),
+            "inputTokenCountRequestCostsIncluded": False,
+            "actualAccountBillGuaranteed": False,
+        },
         "budget": {
             "currency": "USD",
             "limitUsd": loaded["protocol"]["budgetUsd"],
@@ -544,6 +748,11 @@ def render_pilot_result(result: dict[str, Any]) -> str:
                 f"  model: {result['model']} ({result['reasoningEffort']})",
                 f"  maximum calls: {result['maximumCalls']}",
                 (
+                    "  maximum input-token count calls: "
+                    f"{result['providerRequestPlan']['maximumInputTokenCountRequests']} "
+                    "(additional)"
+                ),
+                (
                     "  budget: USD "
                     f"{budget['maximumReservedCostUsd']} reserved / "
                     f"{budget['limitUsd']} limit"
@@ -557,6 +766,7 @@ def render_pilot_result(result: dict[str, Any]) -> str:
             f"IntentBench pilot: {'PASS' if result['ok'] else 'FAIL'}",
             f"  model: {result['model']} ({result['reasoningEffort']})",
             f"  provider calls: {result['providerCalls']}",
+            f"  input-token count calls: {result['tokenCountCalls']}",
             f"  accounted cost: USD {budget['accountedCostUsd']} / {budget['limitUsd']}",
             f"  output: {result['outputDirectory']}",
             "",

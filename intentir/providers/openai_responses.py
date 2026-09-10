@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib
 import json
 import os
@@ -22,6 +23,7 @@ from intentir.model_adapter import (
 
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_INPUT_TOKENS_URL = "https://api.openai.com/v1/responses/input_tokens"
 PROMPT_VERSION = "intentir-openai-responses-v4"
 MAX_PROVIDER_REQUEST_BYTES = 4_000_000
 MAX_PROVIDER_RESPONSE_BYTES = 4_000_000
@@ -104,6 +106,10 @@ ProviderSender = Callable[
     [dict[str, Any], str, OpenAIResponsesConfig],
     dict[str, Any],
 ]
+InputTokenCounter = Callable[
+    [dict[str, Any], str, OpenAIResponsesConfig],
+    dict[str, Any],
+]
 
 
 def generate_adapter_response(
@@ -119,7 +125,30 @@ def generate_adapter_response(
             "missing_openai_api_key",
             "OPENAI_API_KEY is required",
         )
-    payload, prompt_id, configuration_id = build_api_payload(request, config)
+    prepared_payload = build_api_payload(request, config)
+    return _generate_adapter_response_from_prepared(
+        request,
+        config,
+        api_key,
+        prepared_payload,
+        sender=sender,
+    )
+
+
+def _generate_adapter_response_from_prepared(
+    request: dict[str, Any],
+    config: OpenAIResponsesConfig,
+    api_key: str,
+    prepared_payload: tuple[dict[str, Any], str, str],
+    *,
+    sender: ProviderSender | None = None,
+) -> dict[str, Any]:
+    if not isinstance(api_key, str) or not api_key:
+        raise OpenAIProviderError(
+            "missing_openai_api_key",
+            "OPENAI_API_KEY is required",
+        )
+    payload, prompt_id, configuration_id = prepared_payload
     send = sender or _post_openai_response
     provider_response = send(payload, api_key, config)
     candidate = _extract_candidate(provider_response)
@@ -161,6 +190,53 @@ def generate_adapter_response(
     }
     validate_model_response(adapter_response, request["requestId"])
     return adapter_response
+
+
+def count_response_input_tokens(
+    generation_payload: dict[str, Any],
+    config: OpenAIResponsesConfig,
+    api_key: str,
+    *,
+    counter: InputTokenCounter | None = None,
+) -> tuple[int, dict[str, Any]]:
+    if not isinstance(api_key, str) or not api_key:
+        raise OpenAIProviderError(
+            "missing_openai_api_key",
+            "OPENAI_API_KEY is required",
+        )
+    count_payload = build_input_token_count_payload(generation_payload)
+    send = counter or _post_openai_input_tokens
+    provider_response = send(count_payload, api_key, config)
+    if (
+        not isinstance(provider_response, dict)
+        or provider_response.get("object") != "response.input_tokens"
+    ):
+        raise OpenAIProviderError(
+            "invalid_openai_input_token_count_response",
+            "OpenAI input token count response had an unexpected object type",
+        )
+    input_tokens = provider_response.get("input_tokens")
+    if (
+        not isinstance(input_tokens, int)
+        or isinstance(input_tokens, bool)
+        or input_tokens < 0
+    ):
+        raise OpenAIProviderError(
+            "invalid_openai_input_token_count",
+            "OpenAI input token count must be a non-negative integer",
+        )
+    return input_tokens, count_payload
+
+
+def build_input_token_count_payload(
+    generation_payload: dict[str, Any],
+) -> dict[str, Any]:
+    fields = ("model", "input", "instructions", "reasoning", "text")
+    return {
+        field: copy.deepcopy(generation_payload[field])
+        for field in fields
+        if field in generation_payload
+    }
 
 
 def build_api_payload(
@@ -240,6 +316,37 @@ def _post_openai_response(
     api_key: str,
     config: OpenAIResponsesConfig,
 ) -> dict[str, Any]:
+    return _post_openai_json(
+        OPENAI_RESPONSES_URL,
+        payload,
+        api_key,
+        config,
+        operation="response",
+    )
+
+
+def _post_openai_input_tokens(
+    payload: dict[str, Any],
+    api_key: str,
+    config: OpenAIResponsesConfig,
+) -> dict[str, Any]:
+    return _post_openai_json(
+        OPENAI_INPUT_TOKENS_URL,
+        payload,
+        api_key,
+        config,
+        operation="input token count",
+    )
+
+
+def _post_openai_json(
+    url: str,
+    payload: dict[str, Any],
+    api_key: str,
+    config: OpenAIResponsesConfig,
+    *,
+    operation: str,
+) -> dict[str, Any]:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -249,9 +356,19 @@ def _post_openai_response(
         headers["OpenAI-Organization"] = config.organization
     if config.project:
         headers["OpenAI-Project"] = config.project
+    body = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(body) > MAX_PROVIDER_REQUEST_BYTES:
+        raise OpenAIProviderError(
+            "openai_request_too_large",
+            f"OpenAI {operation} request exceeded the provider request limit",
+        )
     http_request = urllib.request.Request(
-        OPENAI_RESPONSES_URL,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        url,
+        data=body,
         headers=headers,
         method="POST",
     )
@@ -265,7 +382,7 @@ def _post_openai_response(
     except urllib.error.HTTPError as error:
         raise OpenAIProviderError(
             "openai_http_error",
-            f"OpenAI API returned HTTP {error.code}",
+            f"OpenAI {operation} API returned HTTP {error.code}",
         ) from error
     except urllib.error.URLError as error:
         if isinstance(error.reason, ssl.SSLCertVerificationError):
@@ -278,29 +395,29 @@ def _post_openai_response(
             ) from error
         raise OpenAIProviderError(
             "openai_network_error",
-            "OpenAI API request failed",
+            f"OpenAI {operation} API request failed",
         ) from error
     except TimeoutError as error:
         raise OpenAIProviderError(
             "openai_timeout",
-            "OpenAI API request timed out",
+            f"OpenAI {operation} API request timed out",
         ) from error
     if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
         raise OpenAIProviderError(
             "openai_response_too_large",
-            "OpenAI response exceeded the provider response limit",
+            f"OpenAI {operation} response exceeded the provider response limit",
         )
     try:
         parsed = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise OpenAIProviderError(
             "invalid_openai_response_json",
-            "OpenAI response was not valid UTF-8 JSON",
+            f"OpenAI {operation} response was not valid UTF-8 JSON",
         ) from error
     if not isinstance(parsed, dict):
         raise OpenAIProviderError(
             "invalid_openai_response",
-            "OpenAI response must be a JSON object",
+            f"OpenAI {operation} response must be a JSON object",
         )
     return parsed
 

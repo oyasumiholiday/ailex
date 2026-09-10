@@ -56,8 +56,11 @@ def run_trajectory_manifest(
     )
     selected = _select_conditions(suite["conditions"], conditions)
     trajectories = []
+    abort_remaining = False
 
     for application in suite["applications"]:
+        if abort_remaining:
+            break
         initial_source = _read_text(
             application["baseSource"],
             f"/applications/{application['index']}/baseSource",
@@ -72,6 +75,8 @@ def run_trajectory_manifest(
             ) from error
 
         for condition in selected:
+            if abort_remaining:
+                break
             current_source = initial_source
             cumulative_hidden: list[str] = []
             checkpoint_runs = []
@@ -138,6 +143,8 @@ def run_trajectory_manifest(
                             default_stage="generation",
                         )
                         checkpoint_runs.append(run)
+                        if getattr(error, "abort_batch", False):
+                            abort_remaining = True
                         break
                     candidate = response["candidate"]
                     model_record = {
