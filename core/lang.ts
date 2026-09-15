@@ -267,7 +267,13 @@ export const STDLIB: Record<string, Builtin> = {
 
 // 多相な組み込み（Go の len/append 方式・型システムに乗せず特別扱い）。map/filter/fold は高階(v0.2)。
 // toString/headOr/getOr は v0.4。some/isSome/unwrapOr/find は v0.5（Option）。
-const POLY = new Set(["length", "get", "head", "tail", "append", "map", "filter", "fold", "toString", "headOr", "getOr", "some", "isSome", "unwrapOr", "find"]);
+const POLY_ARITY: Record<string, number> = {
+  length: 1, get: 2, head: 1, tail: 1, append: 2,
+  map: 2, filter: 2, fold: 3,
+  toString: 1, headOr: 2, getOr: 3,
+  some: 1, isSome: 1, unwrapOr: 2, find: 2,
+};
+const POLY = new Set(Object.keys(POLY_ARITY));
 
 // 実行時の組み込み（VFun）。関数値として渡せるよう名前→VFun で持つ。
 const RT: Record<string, VFun> = {
@@ -279,7 +285,7 @@ const RT: Record<string, VFun> = {
   strlen: (a) => (a[0] as string).length,
   concat: (a) => (a[0] as string) + (a[1] as string),
   length: (a) => (a[0] as Val[]).length,
-  head: (a) => { const x = a[0] as Val[]; if (!x.length) throw new RuntimeErr("head: 空リスト"); return x[0]; },
+  head: (a) => { const x = a[0] as Val[]; if (!x.length) throw new RuntimeErr("head: empty"); return x[0]; },
   tail: (a) => (a[0] as Val[]).slice(1),
   get: (a) => { const x = a[0] as Val[], i = a[1] as number; if (i < 0 || i >= x.length) throw new RuntimeErr(`get: 範囲外 ${i}`); return x[i]; },
   append: (a) => [...(a[0] as Val[]), a[1]],
@@ -314,6 +320,7 @@ export type Diag =
   | { code: "parse"; detail: string }
   | { code: "unbound"; name: string; scope: { name: string; type: string }[] }
   | { code: "not_a_function"; name: string; scope: { name: string; type: string }[] }
+  | { code: "arity_mismatch"; at: number; name: string; expected: number; actual: number; scope: { name: string; type: string }[] }
   | { code: "type_mismatch"; at: number; expected: string; actual: string; scope: { name: string; type: string }[] }
   | { code: "higher_order_unsupported"; at: number; detail: string } // v0.1: 関数値は未サポート(健全性のため型検査で禁止・v0.2で正式化)
   | { code: "unknown_field"; at: number; name: string; fields: { name: string; type: string }[] } // レコードに無いフィールド（使える一覧を開示）
@@ -332,8 +339,18 @@ class Checker {
     for (const [n, b] of Object.entries(STDLIB)) this.globals.set(n, b.ty);
     for (const f of prog.fns) this.globals.set(f.name, { k: "Fun", params: f.params.map((p) => p.ty), ret: f.ret });
   }
-  scopeOf(ctx: Ctx) { return [...ctx, ...this.globals].map(([name, ty]) => ({ name, type: showTy(ty) })); }
+  scopeOf(ctx: Ctx) {
+    return [
+      ...[...ctx, ...this.globals].map(([name, ty]) => ({ name, type: showTy(ty) })),
+      ...Object.entries(POLY_SIGS).map(([name, type]) => ({ name, type })),
+    ];
+  }
   err(d: Diag) { this.errors.push(d); }
+  checkArity(e: Expr & { k: "app" }, expected: number, ctx: Ctx): boolean {
+    if (e.args.length === expected) return true;
+    this.err({ code: "arity_mismatch", at: e.id, name: e.fn, expected, actual: e.args.length, scope: this.scopeOf(ctx) });
+    return false;
+  }
 
   synth(e: Expr, ctx: Ctx): Ty | null {
     switch (e.k) {
@@ -374,7 +391,8 @@ class Checker {
         if (POLY.has(e.fn)) return this.synthPoly(e, ctx);
         const ft = ctx.get(e.fn) ?? this.globals.get(e.fn);
         if (!ft || ft.k !== "Fun") { this.err({ code: "not_a_function", name: e.fn, scope: this.scopeOf(ctx) }); return null; }
-        e.args.forEach((a, i) => ft.params[i] && this.check(a, ft.params[i], ctx));
+        if (!this.checkArity(e, ft.params.length, ctx)) return null;
+        e.args.forEach((a, i) => this.check(a, ft.params[i], ctx));
         return ft.ret;
       }
       case "un": {
@@ -394,6 +412,7 @@ class Checker {
   }
   // 多相組み込みの型付け（引数のリスト型から要素型を推す）
   synthPoly(e: Expr & { k: "app" }, ctx: Ctx): Ty | null {
+    if (!this.checkArity(e, POLY_ARITY[e.fn], ctx)) return null;
     const listArg = (): Ty | null => {
       const t = this.synth(e.args[0], ctx);
       if (t && t.k !== "List") { this.err({ code: "type_mismatch", at: e.id, expected: "List[?]", actual: showTy(t), scope: this.scopeOf(ctx) }); return null; }
@@ -433,8 +452,9 @@ class Checker {
           return t;
         }
         const ft = this.synth(f, ctx);
-        if (t && t.k === "List" && ft && ft.k === "Fun") {
-          if (!tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool") this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
+        if (t && t.k === "List" && ft) {
+          if (ft.k !== "Fun" || ft.params.length !== 1 || !tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool")
+            this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
         }
         return t;
       }
@@ -496,8 +516,9 @@ class Checker {
           return { k: "Option", elem: t.elem };
         }
         const ft = this.synth(f, ctx);
-        if (t && t.k === "List" && ft && ft.k === "Fun") {
-          if (!tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool") this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
+        if (t && t.k === "List" && ft) {
+          if (ft.k !== "Fun" || ft.params.length !== 1 || !tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool")
+            this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
         }
         return t && t.k === "List" ? { k: "Option", elem: t.elem } : null;
       }
@@ -530,6 +551,7 @@ class Checker {
       return;
     }
     if (e.k === "app" && e.fn === "fold") { // check 位置の fold: 期待型 → 初期値 → ラムダ引数へ伝播（v0.5.1・dogfood第5R）
+      if (!this.checkArity(e, POLY_ARITY.fold, ctx)) return;
       const t0 = this.synth(e.args[0], ctx);
       if (t0 && t0.k !== "List") this.err({ code: "type_mismatch", at: e.id, expected: "List[?]", actual: showTy(t0), scope: this.scopeOf(ctx) });
       this.check(e.args[1], want, ctx); // 初期値（[] や none もここで型が付く）
@@ -603,7 +625,12 @@ export function evalExpr(e: Expr, env: Map<string, Val>, gv: Map<string, VFun>):
     case "if": return evalExpr(e.c, env, gv) ? evalExpr(e.t, env, gv) : evalExpr(e.e, env, gv);
     case "let": { const v = evalExpr(e.val, env, gv); const e2 = new Map(env); e2.set(e.name, v); return evalExpr(e.body, e2, gv); }
     case "un": { const v = evalExpr(e.e, env, gv); return e.op === "!" ? !(v as boolean) : -(v as number); }
-    case "bin": return evalBin(e.op, evalExpr(e.l, env, gv), evalExpr(e.r, env, gv), e);
+    case "bin": {
+      const left = evalExpr(e.l, env, gv);
+      if (e.op === "&&") return (left as boolean) ? evalExpr(e.r, env, gv) : false;
+      if (e.op === "||") return (left as boolean) ? true : evalExpr(e.r, env, gv);
+      return evalBin(e.op, left, evalExpr(e.r, env, gv), e);
+    }
     case "app": {
       const fv = env.get(e.fn) ?? gv.get(e.fn);
       if (typeof fv !== "function") throw new RuntimeErr(`呼び出せない '${e.fn}'`);
@@ -627,7 +654,6 @@ function evalBin(op: string, l: Val, r: Val, e: Expr): Val {
     case "-": return (l as number) - (r as number);
     case "*": return (l as number) * (r as number);
     case "/": { if ((r as number) === 0) throw new RuntimeErr("0 除算"); const q = (l as number) / (r as number); return (e as any).nt === "Int" ? Math.trunc(q) : q; } // 型注釈で Int/Float 除算を決める
-    case "&&": return (l as boolean) && (r as boolean); case "||": return (l as boolean) || (r as boolean);
     case "==": return structEq(l, r); case "!=": return !structEq(l, r);
     case ">": return (l as number) > (r as number); case ">=": return (l as number) >= (r as number);
     case "<": return (l as number) < (r as number); case "<=": return (l as number) <= (r as number);
@@ -684,7 +710,7 @@ export const POLY_SIGS: Record<string, string> = {
   tail: "(List[T]) -> List[T]", append: "(List[T], T) -> List[T]",
   toString: "(Int|Float|Bool|String) -> String", headOr: "(List[T], T) -> T", getOr: "(List[T], Int, T) -> T",
   some: "(T) -> Option[T]", isSome: "(Option[T]) -> Bool", unwrapOr: "(Option[T], T) -> T", find: "(List[T], (T) -> Bool) -> Option[T]",
-  map: "(List[T], (T) -> U) -> List[U]", filter: "(List[T], (T) -> Bool) -> List[T]",
+  map: "(List[T], (T) -> U) -> List[U]; (Option[T], (T) -> U) -> Option[U]", filter: "(List[T], (T) -> Bool) -> List[T]",
   fold: "(List[T], U, (U, T) -> U) -> U",
 };
 

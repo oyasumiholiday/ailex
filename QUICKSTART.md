@@ -68,7 +68,38 @@ python3 -m intentir run "$WORK/todo.intent" CreateTask \
   --input '{"id":"task-1","title":"buy milk"}' --db "$WORK/todo.db"
 python3 -m intentir run "$WORK/todo.intent" CompleteTask \
   --input '{"id":"task-1"}' --db "$WORK/todo.db"
+```
 
+### Optional backup before patching
+
+For a release-gate backup rehearsal, stop every process that can write either `todo.intent` or `todo.db`. Keep all writers stopped for the entire source copy and database backup below. The destination directory is created exclusively, the database is opened through a read-only URI so a missing source cannot be created accidentally, and SQLite performs the database copy through its standard backup API.
+
+```sh
+BACKUP="$WORK-backup"
+python3 - "$WORK" "$BACKUP" <<'PY'
+import shutil
+import sqlite3
+import sys
+from contextlib import closing
+from pathlib import Path
+
+work = Path(sys.argv[1])
+backup = Path(sys.argv[2])
+source = (work / "todo.intent").resolve(strict=True)
+database = (work / "todo.db").resolve(strict=True)
+
+backup.mkdir(mode=0o700, exist_ok=False)
+shutil.copyfile(source, backup / "todo.intent")
+database_uri = database.as_uri() + "?mode=ro"
+with closing(sqlite3.connect(database_uri, uri=True)) as source_db:
+    with closing(sqlite3.connect(backup / "todo.db")) as backup_db:
+        source_db.backup(backup_db)
+PY
+```
+
+This is a paired, stopped-writer capture, not an atomic cross-file snapshot or a hot-backup procedure. Once both operations finish, continue with the semantic Patch and migration:
+
+```sh
 python3 -m intentir patch "$WORK/todo.intent" \
   "$WORK/add_task_priority.patch.json" --apply
 python3 -m intentir migrate "$WORK/todo.intent" --db "$WORK/todo.db"
@@ -76,11 +107,67 @@ python3 -m intentir migrate "$WORK/todo.intent" --db "$WORK/todo.db" --apply
 
 python3 -m intentir run "$WORK/todo.intent" RenameTask \
   --input '{"id":"task-1","title":"buy oat milk"}' --db "$WORK/todo.db"
+```
+
+### Optional restore rehearsal
+
+This step requires the optional backup above. Stop all processes that could write the backup pair or restore destination for the entire restore. Restore into a new work directory so neither the migrated database in `$WORK` nor the backup in `$BACKUP` is overwritten:
+
+```sh
+RESTORED="$WORK-restored"
+python3 - "$BACKUP" "$RESTORED" <<'PY'
+import shutil
+import sqlite3
+import sys
+from contextlib import closing
+from pathlib import Path
+
+backup = Path(sys.argv[1])
+restored = Path(sys.argv[2])
+source = (backup / "todo.intent").resolve(strict=True)
+database = (backup / "todo.db").resolve(strict=True)
+
+restored.mkdir(mode=0o700, exist_ok=False)
+shutil.copyfile(source, restored / "todo.intent")
+database_uri = database.as_uri() + "?mode=ro"
+with closing(sqlite3.connect(database_uri, uri=True)) as backup_db:
+    with closing(sqlite3.connect(restored / "todo.db")) as restored_db:
+        backup_db.backup(restored_db)
+
+restored_uri = (restored / "todo.db").resolve(strict=True).as_uri() + "?mode=ro"
+with closing(sqlite3.connect(restored_uri, uri=True)) as restored_db:
+    if restored_db.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+        raise RuntimeError("restored SQLite integrity check failed")
+    table = restored_db.execute(
+        "SELECT table_name FROM intentir_relations "
+        "WHERE module = ? AND entity = ?",
+        ("TodoCrud", "Task"),
+    ).fetchone()[0]
+    quoted_table = '"' + table.replace('"', '""') + '"'
+    columns = {
+        row[1] for row in restored_db.execute(f"PRAGMA table_info({quoted_table})")
+    }
+    row = restored_db.execute(
+        f"SELECT id, title, done FROM {quoted_table}"
+    ).fetchone()
+    if "priority" in columns or row != ("task-1", "buy milk", 1):
+        raise RuntimeError("restored source/database pair does not match snapshot")
+PY
+
+python3 -m intentir run "$RESTORED/todo.intent" CompleteTask \
+  --input '{"id":"task-1"}' --db "$RESTORED/todo.db"
+```
+
+The read-only inspection happens before the CLI action and verifies that the restored database retains the pre-patch task with `done: true` and title `buy milk`, with no `priority` column. The unchanged restored source then runs successfully against that database. The later rename is absent because restoring an older snapshot necessarily loses every post-backup write. Database transaction rollback is not migration rollback; migration recovery requires restoring the rehearsed source-and-database pair. This restore leaves both the old backup and the migrated database intact.
+
+The original walkthrough can optionally finish by deleting the task from the migrated database; this command is separate from the restore rehearsal and intentionally changes `$WORK/todo.db`:
+
+```sh
 python3 -m intentir run "$WORK/todo.intent" DeleteTask \
   --input '{"id":"task-1"}' --db "$WORK/todo.db"
 ```
 
-Every command is a new process. The SQLite database preserves the completed task between them; the migration fills the newly added `priority` field with its default `0`. The rename output therefore contains `done: true`, the new title, and `priority: 0`, and the final delete output contains an empty `Task` list. The first `migrate` only prints the plan; the second applies it.
+Every IntentIR command is a new process. The SQLite database preserves the completed task between them; the migration fills the newly added `priority` field with its default `0`. The rename output therefore contains `done: true`, the new title, and `priority: 0`, and the final delete output contains an empty `Task` list. The first `migrate` only prints the plan; the second applies it.
 
 ## Run the Container
 

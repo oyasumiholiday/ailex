@@ -34,6 +34,7 @@ end dist
 
 - 演算子: `+ - * /`（`/` は Int で切り捨て）、比較 `== != > >= < <=`、論理 `&& || !`
   - `==` はリスト・レコードも**深く**比較する
+- `a && b` は左辺を一度評価し、`true` の場合だけ右辺を評価する。`a || b` は左辺が `false` の場合だけ右辺を評価する。到達不能な右辺を含め両辺は静的に `Bool` として検査され、`some` / `unwrapOr` 等の通常の呼出しが遅延評価になるわけではない。
 - 分岐は式: `if(cond, then, else)`
 - 束縛: `let x : T = 式 in 式`
 - 無名関数: `fn (x) => x * 2.0`（型注釈は任意。`fn (x : Float) => ...` も可）
@@ -73,6 +74,7 @@ unwrapOr(map(find(es, p), fn (e) => e.cat), "none")   -- 見つけて変換（Op
 
 - `ailex check f.ax` → 構造化 JSON 診断。型エラーは**スコープ（使える名前と型の一覧）**を含む。
   未知フィールドは**使えるフィールド一覧**を含む。実行時エラーも `{code: "runtime", detail}`。
+- すべての関数呼出しは引数個数の完全一致を要求し、`arity_mismatch` は `{at, name, expected, actual, scope}`（`expected` / `actual` は個数）を返す。
 - `ailex scope f.ax [関数名]` → その位置で使える名前と型（機械可読）。
 - `ailex run f.ax` → 型＋契約検査のうえ JS に変換して実行。
 - 診断を読んで直すときは、**scope / fields に列挙された名前だけ**を使うこと（それ以外は存在しない）。

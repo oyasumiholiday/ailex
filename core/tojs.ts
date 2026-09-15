@@ -10,6 +10,7 @@ import { parseExpr } from "./lang.ts";
 
 const PRELUDE = `const $rt = {
   sqrt: Math.sqrt,
+  div: (a, b, isInt) => { if (b === 0) throw new Error("0 除算"); const q = a / b; return isInt ? Math.trunc(q) : q; },
   toFloat: (n) => n,
   toInt: (x) => Math.trunc(x),
   dot: (a, b) => a.reduce((s, x, i) => s + x * b[i], 0),
@@ -69,7 +70,7 @@ export function exprToJs(e: Expr): string {
     case "un": return `(${e.op}${exprToJs(e.e)})`;
     case "bin": {
       const l = exprToJs(e.l), r = exprToJs(e.r);
-      if (e.op === "/" && e.nt === "Int") return `Math.trunc(${l} / ${r})`;
+      if (e.op === "/") return `$rt.div(${l}, ${r}, ${e.nt === "Int"})`;
       if (e.op === "==") return `$rt.eq(${l}, ${r})`;
       if (e.op === "!=") return `(!$rt.eq(${l}, ${r}))`;
       return `(${l} ${e.op} ${r})`;
