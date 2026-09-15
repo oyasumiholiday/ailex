@@ -58,7 +58,8 @@ switch (cmd) {
     break;
   }
   case "emit-js": {
-    check(prog); // bin.nt を刻む（/ の意味論）
+    const r = check(prog); // bin.nt を刻む（/ の意味論）
+    if (!r.ok) { console.error(JSON.stringify({ ok: false, errors: r.errors }, null, 2)); process.exit(1); }
     console.log(toJs(prog));
     break;
   }

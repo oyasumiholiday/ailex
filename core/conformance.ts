@@ -10,27 +10,83 @@ interface Case {
   name: string;
   src: string;
   check?: "ok" | string;              // 期待する型検査結果（"ok" or 診断コード）
+  arity?: { name: string; expected: number; actual: number; scope?: Record<string, string> };
   parseErr?: boolean;                 // パースエラーを期待
   evals?: [string, number | boolean | string][]; // [式, 期待値]（型検査 ok のとき評価）
+  evalErrors?: [string, string][];    // [式, 両バックエンドで期待する error.message]
   contracts?: "ok" | "fail";          // eg/ensures 契約の結果
 }
 
 const F = (body: string, sig = "fn f (x : Float) -> Float", bt = "Float") =>
   `${sig}\nbody ${bt}\n  ${body}\nend f`;
 
+const POLY_CALLS: { name: string; args: string[]; ret: string }[] = [
+  { name: "length", args: ["[1]"], ret: "Int" },
+  { name: "get", args: ["[1]", "0"], ret: "Int" },
+  { name: "head", args: ["[1]"], ret: "Int" },
+  { name: "tail", args: ["[1]"], ret: "List[Int]" },
+  { name: "append", args: ["[1]", "2"], ret: "List[Int]" },
+  { name: "map", args: ["[1]", "fn (x) => x"], ret: "List[Int]" },
+  { name: "filter", args: ["[1]", "fn (x) => x > 0"], ret: "List[Int]" },
+  { name: "fold", args: ["[1]", "0", "fn (acc, x) => acc + x"], ret: "Int" },
+  { name: "toString", args: ["1"], ret: "String" },
+  { name: "headOr", args: ["[1]", "0"], ret: "Int" },
+  { name: "getOr", args: ["[1]", "0", "0"], ret: "Int" },
+  { name: "some", args: ["1"], ret: "Option[Int]" },
+  { name: "isSome", args: ["some(1)"], ret: "Bool" },
+  { name: "unwrapOr", args: ["some(1)", "0"], ret: "Int" },
+  { name: "find", args: ["[1]", "fn (x) => x > 0"], ret: "Option[Int]" },
+];
+
+const POLY_ARITY_CASES: Case[] = POLY_CALLS.flatMap(({ name, args, ret }) => {
+  const source = (callArgs: string[]) => `fn f () -> ${ret}\nbody ${ret}\n  ${name}(${callArgs.join(", ")})\nend f`;
+  return [
+    { name: `${name} rejects too few arguments`, src: source(args.slice(0, -1)), check: "arity_mismatch", arity: { name, expected: args.length, actual: args.length - 1 } },
+    { name: `${name} rejects too many arguments`, src: source([...args, "0"]), check: "arity_mismatch", arity: { name, expected: args.length, actual: args.length + 1 } },
+  ];
+});
+
+const CALLBACK_SHAPES = [
+  { name: "non-function", definitions: "", value: "7" },
+  { name: "named zero-argument", definitions: "fn predicate () -> Bool\nbody Bool\n  true\nend predicate\n", value: "predicate" },
+  { name: "named two-argument", definitions: "fn predicate (x : Int, y : Int) -> Bool\nbody Bool\n  x > 0\nend predicate\n", value: "predicate" },
+  { name: "wrong parameter type", definitions: "fn predicate (x : Float) -> Bool\nbody Bool\n  x > 0.0\nend predicate\n", value: "predicate" },
+  { name: "wrong result type", definitions: "fn predicate (x : Int) -> Int\nbody Int\n  x\nend predicate\n", value: "predicate" },
+];
+
+const CALLBACK_CASES: Case[] = ["filter", "find"].flatMap((builtin) =>
+  CALLBACK_SHAPES.map(({ name, definitions, value }) => {
+    const ret = builtin === "filter" ? "List[Int]" : "Option[Int]";
+    return {
+      name: `${builtin} rejects ${name} callback`,
+      src: `${definitions}fn f (v : List[Int]) -> ${ret}\nbody ${ret}\n  ${builtin}(v, ${value})\nend f`,
+      check: "type_mismatch",
+    };
+  })
+);
+
 const CASES: Case[] = [
   // ── 算術・型 ──
   { name: "int arithmetic", src: `fn f (x : Int) -> Int\nbody Int\n  x * x + 1\nend f`, check: "ok", evals: [["f(3)", 10], ["f(0)", 1]] },
   { name: "float arithmetic", src: F("x * x"), check: "ok", evals: [["f(3.0)", 9], ["f(0.5)", 0.25]] },
   { name: "int/float no mix", src: `fn f (x : Int) -> Int\nbody Int\n  x + 1.0\nend f`, check: "type_mismatch" },
-  { name: "int division truncates", src: `fn f (x : Int) -> Int\nbody Int\n  x / 2\nend f`, check: "ok", evals: [["f(7)", 3]] },
-  { name: "float division", src: F("x / 2.0"), check: "ok", evals: [["f(7.0)", 3.5]] },
+  { name: "int division truncates", src: `fn f (x : Int) -> Int\nbody Int\n  x / 2\nend f`, check: "ok", evals: [["f(7)", 3], ["f(-7)", -3]] },
+  { name: "float division", src: F("x / 2.0"), check: "ok", evals: [["f(7.0)", 3.5], ["f(-7.0)", -3.5], ["f(0.5)", 0.25]] },
+  { name: "division by zero errors on both backends", src: `fn intZero () -> Int\nbody Int\n  1 / 0\nend intZero\nfn floatZero () -> Float\nbody Float\n  1.0 / 0.0\nend floatZero\nfn negativeZero () -> Float\nbody Float\n  1.0 / -0.0\nend negativeZero\nfn zeroZero () -> Int\nbody Int\n  0 / 0\nend zeroZero\nfn floatZeroZero () -> Float\nbody Float\n  0.0 / 0.0\nend floatZeroZero`, check: "ok", evalErrors: [["intZero()", "0 除算"], ["floatZero()", "0 除算"], ["negativeZero()", "0 除算"], ["zeroZero()", "0 除算"], ["floatZeroZero()", "0 除算"]] },
 
   // ── if / bool / 比較 ──
   { name: "if + comparison", src: F("if(x >= 0.0, x, 0.0)"), check: "ok", evals: [["f(3.0)", 3], ["f(-2.0)", 0]] },
   { name: "if branch type must match", src: `fn f (x : Int) -> Int\nbody Int\n  if(x >= 0, x, 1.0)\nend f`, check: "type_mismatch" },
   { name: "bool ops", src: `fn g (a : Bool, b : Bool) -> Bool\nbody Bool\n  a && (b || !a)\nend g`, check: "ok", evals: [["g(true, true)", true], ["g(true, false)", false]] },
   { name: "comparison yields Bool", src: `fn ge (a : Float, b : Float) -> Bool\nbody Bool\n  a >= b\nend ge`, check: "ok", evals: [["ge(3.0, 2.0)", true], ["ge(1.0, 5.0)", false]] },
+  { name: "and guards head on empty", src: `fn guarded (v : List[Int]) -> Bool\nbody Bool\n  length(v) > 0 && head(v) > 0\nend guarded`, check: "ok", evals: [["guarded([])", false], ["guarded([2])", true], ["guarded([-2])", false]] },
+  { name: "or guards head on empty", src: `fn guarded (v : List[Int]) -> Bool\nbody Bool\n  length(v) == 0 || head(v) > 0\nend guarded`, check: "ok", evals: [["guarded([])", true], ["guarded([2])", true], ["guarded([-2])", false]] },
+  { name: "nested logical short circuit", src: `fn nestedAnd (enabled : Bool, v : List[Int]) -> Bool\nbody Bool\n  enabled && (length(v) == 0 || head(v) > 0)\nend nestedAnd\nfn nestedOr (fallback : Bool, v : List[Int]) -> Bool\nbody Bool\n  fallback || (length(v) > 0 && head(v) > 0)\nend nestedOr`, check: "ok", evals: [["nestedAnd(false, [])", false], ["nestedAnd(true, [])", true], ["nestedAnd(true, [-1])", false], ["nestedOr(true, [])", true], ["nestedOr(false, [])", false], ["nestedOr(false, [1])", true]] },
+  { name: "required logical RHS raises head error", src: `fn requiredAnd (v : List[Int]) -> Bool\nbody Bool\n  true && head(v) > 0\nend requiredAnd\nfn requiredOr (v : List[Int]) -> Bool\nbody Bool\n  false || head(v) > 0\nend requiredOr`, check: "ok", evalErrors: [["requiredAnd([])", "head: empty"], ["requiredOr([])", "head: empty"]] },
+  { name: "logical guards skip division by zero", src: `fn skippedAnd () -> Bool\nbody Bool\n  false && (1 / 0 == 0)\nend skippedAnd\nfn skippedOr () -> Bool\nbody Bool\n  true || (1 / 0 == 0)\nend skippedOr`, check: "ok", evals: [["skippedAnd()", false], ["skippedOr()", true]] },
+  { name: "required logical RHS raises division error", src: `fn requiredAnd () -> Bool\nbody Bool\n  true && (1 / 0 == 0)\nend requiredAnd\nfn requiredOr () -> Bool\nbody Bool\n  false || (1 / 0 == 0)\nend requiredOr`, check: "ok", evalErrors: [["requiredAnd()", "0 除算"], ["requiredOr()", "0 除算"]] },
+  { name: "unreachable and RHS is still type checked", src: `fn f () -> Bool\nbody Bool\n  false && 1\nend f`, check: "type_mismatch" },
+  { name: "unreachable or RHS is still type checked", src: `fn f () -> Bool\nbody Bool\n  true || 1\nend f`, check: "type_mismatch" },
 
   // ── let ──
   { name: "let binding", src: `fn f (a : Float, b : Float, k : Float) -> Float\nbody Float\n  let s : Float = a + b in s * k\nend f`, check: "ok", evals: [["f(2.0, 3.0, 10.0)", 50]] },
@@ -42,6 +98,14 @@ const CASES: Case[] = [
   { name: "toFloat / toInt", src: `fn f (n : Int) -> Float\nbody Float\n  toFloat(n) / 2.0\nend f`, check: "ok", evals: [["f(7)", 3.5]] },
   { name: "unbound variable", src: F("y + x"), check: "unbound" },
   { name: "wrong arg type", src: `fn f (x : Int) -> Float\nbody Float\n  sqrt(x)\nend f`, check: "type_mismatch" },
+  { name: "stdlib call rejects too few arguments", src: `fn f () -> Float\nbody Float\n  sqrt()\nend f`, check: "arity_mismatch", arity: { name: "sqrt", expected: 1, actual: 0, scope: { length: "(List[T]) -> Int", map: "(List[T], (T) -> U) -> List[U]; (Option[T], (T) -> U) -> Option[U]" } } },
+  { name: "stdlib call rejects too many arguments", src: `fn f () -> Float\nbody Float\n  sqrt(1.0, 2.0)\nend f`, check: "arity_mismatch", arity: { name: "sqrt", expected: 1, actual: 2 } },
+  { name: "user call rejects too few arguments", src: `fn one (x : Int) -> Int\nbody Int\n  x\nend one\nfn f () -> Int\nbody Int\n  one()\nend f`, check: "arity_mismatch" },
+  { name: "user call rejects too many arguments", src: `fn one (x : Int) -> Int\nbody Int\n  x\nend one\nfn f () -> Int\nbody Int\n  one(1, 2)\nend f`, check: "arity_mismatch" },
+  { name: "function parameter call rejects too few arguments", src: `fn apply (g : (Int) -> Int) -> Int\nbody Int\n  g()\nend apply`, check: "arity_mismatch" },
+  { name: "function parameter call rejects too many arguments", src: `fn apply (g : (Int) -> Int) -> Int\nbody Int\n  g(1, 2)\nend apply`, check: "arity_mismatch" },
+  { name: "lambda binding call rejects too few arguments", src: `fn f () -> Int\nbody Int\n  let g : (Int) -> Int = fn (x) => x in g()\nend f`, check: "arity_mismatch" },
+  { name: "lambda binding call rejects too many arguments", src: `fn f () -> Int\nbody Int\n  let g : (Int) -> Int = fn (x) => x in g(1, 2)\nend f`, check: "arity_mismatch" },
 
   // ── パース ──
   { name: "parse error missing paren", src: `fn f (x : Float) -> Float\nbody Float\n  sqrt(x\nend f`, parseErr: true },
@@ -66,6 +130,10 @@ const CASES: Case[] = [
   { name: "filter", src: `fn pos (v : List[Float]) -> List[Float]\nbody List[Float]\n  filter(v, fn (x : Float) => x >= 0.0)\nend pos`, check: "ok", evals: [["length(pos([-1.0, 2.0, -3.0, 4.0]))", 2]] },
   { name: "map result type checked", src: `fn f (v : List[Float]) -> List[Float]\nbody List[Float]\n  map(v, fn (x : Float) => x >= 0.0)\nend f`, check: "type_mismatch" },
   { name: "map lambda param type mismatch", src: `fn f (v : List[Int]) -> List[Int]\nbody List[Int]\n  map(v, fn (x : Float) => x)\nend f`, check: "type_mismatch" },
+  ...CALLBACK_CASES,
+  { name: "fold check position rejects arity before argument access", src: `fn f () -> Int\nbody Int\n  fold()\nend f`, check: "arity_mismatch", arity: { name: "fold", expected: 3, actual: 0 } },
+  { name: "fold synth position rejects arity before argument access", src: `fn f () -> Int\nbody Int\n  fold([1], 0) + 1\nend f`, check: "arity_mismatch", arity: { name: "fold", expected: 3, actual: 2 } },
+  { name: "valid HOF empty boundaries on both backends", src: `fn mapped (v : List[Int]) -> Int\nbody Int\n  length(map(v, fn (x) => x + 1))\nend mapped\nfn filtered (v : List[Int]) -> Int\nbody Int\n  length(filter(v, fn (x) => x > 0))\nend filtered\nfn folded (v : List[Int]) -> Int\nbody Int\n  fold(v, 0, fn (acc, x) => acc + x)\nend folded\nfn found (v : List[Int]) -> Bool\nbody Bool\n  isSome(find(v, fn (x) => x > 0))\nend found`, check: "ok", evals: [["mapped([])", 0], ["filtered([])", 0], ["folded([])", 0], ["found([])", false]] },
 
   // ── Record（v0.3）──
   { name: "record literal + field access", src: `fn f () -> Float\nbody Float\n  let p : {x : Float, y : Float} = {x = 3.0, y = 4.0} in p.x + p.y\nend f`, check: "ok", evals: [["f()", 7]] },
@@ -144,6 +212,11 @@ const CASES: Case[] = [
   // ── 契約 ──
   { name: "contract eg passes", src: `fn norm (v : Float, w : Float) -> Float\n  ensures ret >= 0.0\n  eg norm(3.0, 4.0) = 5.0\nbody Float\n  sqrt(v * v + w * w)\nend norm`, check: "ok", contracts: "ok" },
   { name: "contract eg fails (wrong body)", src: `fn norm (v : Float, w : Float) -> Float\n  eg norm(3.0, 4.0) = 5.0\nbody Float\n  v * v + w * w\nend norm`, check: "ok", contracts: "fail" },
+  { name: "eg call arity is checked", src: `fn f (x : Int) -> Int\n  eg f() = 0\nbody Int\n  x\nend f`, check: "arity_mismatch" },
+  { name: "eg expected arity is checked", src: `fn f (x : Int) -> Int\n  eg f(1) = length()\nbody Int\n  x\nend f`, check: "arity_mismatch" },
+  { name: "requires arity is checked", src: `fn f (x : String) -> String\n  requires contains(x)\nbody String\n  x\nend f`, check: "arity_mismatch" },
+  { name: "ensures arity is checked", src: `fn f (x : Float) -> Float\n  ensures sqrt() >= 0.0\nbody Float\n  x\nend f`, check: "arity_mismatch" },
+  ...POLY_ARITY_CASES,
 ];
 
 // ───────────────────────── ランナー ─────────────────────────
@@ -164,7 +237,19 @@ function runCase(c: Case): { pass: boolean; msg: string } {
     if (!r.ok) return { pass: false, msg: `型検査失敗を検出: ${r.errors.map((e) => e.code).join(",")}` };
   } else if (c.check) {
     if (r.ok) return { pass: false, msg: `診断 ${c.check} を期待したが ok` };
-    if (!r.errors.some((e) => e.code === c.check)) return { pass: false, msg: `診断 ${c.check} を期待したが [${r.errors.map((e) => e.code).join(",")}]` };
+    const diagnostic = r.errors.find((e) => e.code === c.check);
+    if (!diagnostic) return { pass: false, msg: `診断 ${c.check} を期待したが [${r.errors.map((e) => e.code).join(",")}]` };
+    if (c.arity) {
+      const got = diagnostic as any;
+      const keys = Object.keys(got).sort().join(",");
+      if (keys !== "actual,at,code,expected,name,scope") return { pass: false, msg: `arity_mismatch のフィールドが不正: ${keys}` };
+      if (got.name !== c.arity.name || got.expected !== c.arity.expected || got.actual !== c.arity.actual)
+        return { pass: false, msg: `arity_mismatch の値が不正: ${JSON.stringify(got)}` };
+      for (const [name, type] of Object.entries(c.arity.scope ?? {})) {
+        if (!got.scope.some((item: any) => item.name === name && item.type === type))
+          return { pass: false, msg: `arity_mismatch scope に ${name}: ${type} がない` };
+      }
+    }
     return { pass: true, msg: `診断 ${c.check} (期待通り)` };
   }
 
@@ -175,6 +260,14 @@ function runCase(c: Case): { pass: boolean; msg: string } {
     if (!eq(got, want)) return { pass: false, msg: `[interp] ${expr} = ${got}, 期待 ${want}` };
     let js: any; try { js = runJs(prog, expr); } catch (e: any) { return { pass: false, msg: `JSバックエンド実行エラー ${expr}: ${e.message}` }; }
     if (!eq(js, want)) return { pass: false, msg: `[js] ${expr} = ${js}, 期待 ${want}（インタプリタと不一致）` };
+  }
+  for (const [expr, expectedMessage] of c.evalErrors ?? []) {
+    let interpMessage: string | null = null;
+    try { evalInProgram(prog, expr); } catch (e: any) { interpMessage = e?.message; }
+    if (interpMessage !== expectedMessage) return { pass: false, msg: `[interp] ${expr} error.message = ${JSON.stringify(interpMessage)}, 期待 ${JSON.stringify(expectedMessage)}` };
+    let jsMessage: string | null = null;
+    try { runJs(prog, expr); } catch (e: any) { jsMessage = e?.message; }
+    if (jsMessage !== expectedMessage) return { pass: false, msg: `[js] ${expr} error.message = ${JSON.stringify(jsMessage)}, 期待 ${JSON.stringify(expectedMessage)}` };
   }
 
   // contracts

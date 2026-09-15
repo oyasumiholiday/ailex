@@ -167,3 +167,45 @@ conformance: 78 → **85/85 緑**。全8例緑。受け入れ（aigen Haiku）8/
 - `subtotal = price * quantity`、`total = subtotal + fee`と中間値を名前付けしようとしてFunctionに`let:`を置くと、変更前は`unknown function section ... let:`でParseErrorになった。
 - Bodyへ計算を重複展開すると読みにくく、Function呼出しを含む式では重複評価にもなる。この拒否を根拠に、Inputと先行Localだけを順に参照する不変Bindingをnested `let` IRとして追加した。
 - `examples/local_bindings.intent` がゼロ境界、連鎖Binding、Initializer内Function呼出し、comparison chainとの組合せを固定する。
+
+---
+
+# Ailex CLI / call checking probes（2026-09-10）
+
+以下は実装に対する actual probe findings であり、model measurement ではない。
+
+- `fold()` と `length()` は型検査中に `undefined.k` の TypeError を起こした一方、`sqrt()` と `length([1], 999)` は検査を通過した。呼出しの exact arity と構造化された `arity_mismatch` が欠けていた。
+- `filter([1], 7)` と `find([1], 7)` は、それぞれ `List[Int]` / `Option[Int]` として検査を通過し、predicate callback の型を拒否できていなかった。
+- `emit-js /dev/stdin` 相当の `sqrt(true)` probe は、型エラーがあっても status 0 で JavaScript を出力した。
+- Bounded fix として exact arity、`filter` / `find` callback 診断、`emit-js` の型検査 gate、CLI regression suite を実装した。`npm test` は conformance 144 / 144 および別の CLI regression suite が成功し、全 8 examples は interpreter / JavaScript backend の両方で成功した。これは current local implementation の回帰証拠であり、model performance の測定または改善を示すものではない。
+
+---
+
+# Ailex logical short-circuit probes（2026-09-10）
+
+以下は実装に対する actual probe findings であり、model study ではない。
+
+- `false && (1 / 0 == 0)` は interpreter で 0 除算になった一方、JavaScript backend は `false` を返した。`true || (1 / 0 == 0)` も interpreter だけが 0 除算になり、JavaScript backend は `true` を返した。
+- 実用上の guard `length(v) > 0 && head(v) > 0` は静的型検査を通るが、空リストでは interpreter が空リストの実行時エラー、JavaScript backend が正しく `false` となった。
+- Bounded fix は `&&` / `||` の左辺を一度評価し、必要な場合だけ右辺を評価する。到達不能な右辺も `Bool` として静的検査するため、一般化された laziness ではない。現在の interpreter の空リスト診断は JavaScript backend と同じ `head: empty` に変更された。Current local implementation で conformance 153 / 153、別の CLI regression suite、全 8 examples の両 backend が成功した。これは回帰証拠であり、model performance の測定ではない。
+
+---
+
+# Ailex division-by-zero backend probes（2026-09-10）
+
+以下は実装に対する actual probe findings であり、model study ではない。
+
+- 型検査済み program の `1 / 0` は interpreter で `0 除算` になった一方、JavaScript backend は `Infinity` を返した。`1.0 / 0.0` も同様で、`0.0 / 0.0` は JavaScript backend で `NaN` になった。
+- Bounded fix は JavaScript lowering の全 division を `$rt.div(left, right, isInt)` に通し、右辺が `0`（`-0` を含む）なら runtime error とする。関数引数として left-to-right に各 operand を一度だけ評価し、Int の場合だけ商を `Math.trunc` する。新しい数値機能は追加しない。
+- CLI regression は型付き `main` の 0 除算が status 1 の構造化 `runtime` 診断となり、`Infinity` を出力しないことを固定する。Int / Float の 0 除算（`0.0 / 0.0` を含む）は期待する error message まで検証され、current local implementation で conformance 153 / 153 と別の CLI regression suite が成功した。
+
+---
+
+# Ailex browser bundle staleness probes（2026-09-10）
+
+以下は既存の `docs/ailex.js` に対する actual probe findings であり、model study ではない。
+
+- Source 側の修正後も、旧 browser bundle では `length([1], 999)` が検査を通過した。
+- 旧 browser bundle の interpreter では `false && (1 / 0 == 0)` が 0 除算になり、source と bundle の意味論が一致していなかった。
+- Bounded regression は browser bundle の 9 exports、構造化 arity 診断と Option 対応 `map` scope、両 backend の short-circuit guard と 0 除算、parse / contracts の既知 sample を bundle import だけで検査する。これは local unpublished の freshness evidence であり、Website への公開を示さない。
+- Actual local verification では、localhost の `docs/index.html` を headless Chrome で開き、default sample の `main = 5`、invalid arity 診断、short-circuit の `eg` と `main = false`、0 除算の runtime `0 除算` を UI 上で確認し、page error は 0 だった。server / browser は終了済み。`npm audit` は全 dependencies 0 vulnerabilities（dev dependency `esbuild 0.28.2` を lock）、conformance 153 / 153、CLI regressions、browser freshness / regressions が成功し、2 回の build は byte-identical、stale check は cwd 外で read-only だった。これは local unpublished evidence であり、外部 validation ではない。

@@ -11,7 +11,9 @@
     "node": ">=23"
   },
   "scripts": {
-    "test": "node core/conformance.ts",
+    "test": "node core/conformance.ts && node core/cli-regressions.ts && npm run check:browser && node core/browser-regressions.ts",
+    "build:browser": "node scripts/build-browser.mjs",
+    "check:browser": "node scripts/build-browser.mjs --check",
     "examples": "for f in examples/*.ax; do node core/cli.ts run $f; done"
   },
   "files": [
@@ -39,7 +41,8 @@
   ],
   "license": "MIT",
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.110.0"
+    "@anthropic-ai/sdk": "^0.110.0",
+    "esbuild": "0.28.2"
   },
   "repository": {
     "type": "git",

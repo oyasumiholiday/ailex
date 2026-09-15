@@ -43,6 +43,17 @@ uv run --frozen --extra mcp python -m unittest discover -s tests -v
 
 The concise setup and Container workflow are in [QUICKSTART.md](QUICKSTART.md).
 
+## Browser Bundle
+
+Install the exact locked toolchain with `npm ci`. After changing an exported Ailex parser, checker, interpreter, or JavaScript-backend behavior, regenerate the browser bundle with:
+
+```sh
+npm run build:browser
+npm run check:browser
+```
+
+Do not edit `docs/ailex.js` by hand. `npm run build:browser` is the only regeneration path; `npm run check:browser` verifies byte-for-byte freshness without writing the bundle.
+
 ## Pull Request Requirements
 
 - Describe what changed, why it changed, and the affected compatibility boundary.

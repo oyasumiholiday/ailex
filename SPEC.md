@@ -117,6 +117,7 @@ atom        = int | float | string | "true" | "false"
 - `f(a1..an)`: 引数を左から評価し、関数（stdlib or ユーザ定義）を適用。
 - ユーザ定義 `f` の適用: 仮引数を実引数に束縛し本体を評価。
 - `if(c,t,e)`: `c` を評価し `true` なら `t`、さもなくば `e`（短絡）。
+- `a && b` / `a || b`: 左辺 `a` を一度だけ評価する。`&&` は `a` が `true` の場合だけ、`||` は `a` が `false` の場合だけ右辺 `b` を評価する。ただし到達不能な右辺も含め、両辺は静的に `Bool` として検査する。この規則は一般化された遅延評価を導入せず、通常の関数呼出し（`some` / `unwrapOr` 等）は eager のままである。
 - `let x=e1 in e2`: `e1` を評価して `x` に束縛し `e2` を評価。
 - 算術・比較・論理は host 意味論（`/` は `Int` では整数除算=切り捨て、0 除算は実行時エラー）。
 - 純粋・決定的。同入力→同出力。
@@ -162,6 +163,7 @@ atom        = int | float | string | "true" | "false"
 - `parse` : `{ detail }`
 - `unbound` : `{ name, scope: [{name, type}] }`
 - `not_a_function` : `{ name, scope: [...] }`
+- `arity_mismatch` : `{ at, name, expected: number, actual: number, scope: [...] }`（すべての呼出しは引数個数の完全一致を要求）
 - `type_mismatch` : `{ expected, actual, scope: [...] }`
 - `hole` : `{ name, expected, scope: [...] }`（未完成な式）
 - `contract` : `{ kind: "ensures"|"eg", call, expected, actual }`

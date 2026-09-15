@@ -100,11 +100,12 @@ function lex(src) {
 var ParseErr = class extends Error {
 };
 var Parser = class {
+  p = 0;
+  nid = 1;
+  toks;
+  aliases = /* @__PURE__ */ new Map();
   // 型エイリアス（透明・宣言は使用に先行）
   constructor(toks) {
-    this.p = 0;
-    this.nid = 1;
-    this.aliases = /* @__PURE__ */ new Map();
     this.toks = toks;
   }
   peek() {
@@ -441,7 +442,24 @@ var STDLIB = {
     return s !== "" && Number.isFinite(n) ? { has: true, val: n } : { has: false };
   } }
 };
-var POLY = /* @__PURE__ */ new Set(["length", "get", "head", "tail", "append", "map", "filter", "fold", "toString", "headOr", "getOr", "some", "isSome", "unwrapOr", "find"]);
+var POLY_ARITY = {
+  length: 1,
+  get: 2,
+  head: 1,
+  tail: 1,
+  append: 2,
+  map: 2,
+  filter: 2,
+  fold: 3,
+  toString: 1,
+  headOr: 2,
+  getOr: 3,
+  some: 1,
+  isSome: 1,
+  unwrapOr: 2,
+  find: 2
+};
+var POLY = new Set(Object.keys(POLY_ARITY));
 var RT = {
   sqrt: (a) => Math.sqrt(a[0]),
   toFloat: (a) => a[0],
@@ -453,7 +471,7 @@ var RT = {
   length: (a) => a[0].length,
   head: (a) => {
     const x = a[0];
-    if (!x.length) throw new RuntimeErr("head: \u7A7A\u30EA\u30B9\u30C8");
+    if (!x.length) throw new RuntimeErr("head: empty");
     return x[0];
   },
   tail: (a) => a[0].slice(1),
@@ -510,17 +528,25 @@ function hasFun(t) {
   return t.k === "Fun" || (t.k === "List" || t.k === "Option") && hasFun(t.elem);
 }
 var Checker = class {
+  errors = [];
+  globals = /* @__PURE__ */ new Map();
   constructor(prog) {
-    this.errors = [];
-    this.globals = /* @__PURE__ */ new Map();
     for (const [n, b] of Object.entries(STDLIB)) this.globals.set(n, b.ty);
     for (const f of prog.fns) this.globals.set(f.name, { k: "Fun", params: f.params.map((p) => p.ty), ret: f.ret });
   }
   scopeOf(ctx) {
-    return [...ctx, ...this.globals].map(([name, ty]) => ({ name, type: showTy(ty) }));
+    return [
+      ...[...ctx, ...this.globals].map(([name, ty]) => ({ name, type: showTy(ty) })),
+      ...Object.entries(POLY_SIGS).map(([name, type]) => ({ name, type }))
+    ];
   }
   err(d) {
     this.errors.push(d);
+  }
+  checkArity(e, expected, ctx) {
+    if (e.args.length === expected) return true;
+    this.err({ code: "arity_mismatch", at: e.id, name: e.fn, expected, actual: e.args.length, scope: this.scopeOf(ctx) });
+    return false;
   }
   synth(e, ctx) {
     switch (e.k) {
@@ -584,7 +610,8 @@ var Checker = class {
           this.err({ code: "not_a_function", name: e.fn, scope: this.scopeOf(ctx) });
           return null;
         }
-        e.args.forEach((a, i) => ft.params[i] && this.check(a, ft.params[i], ctx));
+        if (!this.checkArity(e, ft.params.length, ctx)) return null;
+        e.args.forEach((a, i) => this.check(a, ft.params[i], ctx));
         return ft.ret;
       }
       case "un": {
@@ -626,6 +653,7 @@ var Checker = class {
   }
   // 多相組み込みの型付け（引数のリスト型から要素型を推す）
   synthPoly(e, ctx) {
+    if (!this.checkArity(e, POLY_ARITY[e.fn], ctx)) return null;
     const listArg = () => {
       const t = this.synth(e.args[0], ctx);
       if (t && t.k !== "List") {
@@ -695,8 +723,9 @@ var Checker = class {
           return t;
         }
         const ft = this.synth(f, ctx);
-        if (t && t.k === "List" && ft && ft.k === "Fun") {
-          if (!tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool") this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
+        if (t && t.k === "List" && ft) {
+          if (ft.k !== "Fun" || ft.params.length !== 1 || !tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool")
+            this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
         }
         return t;
       }
@@ -776,8 +805,9 @@ var Checker = class {
           return { k: "Option", elem: t.elem };
         }
         const ft = this.synth(f, ctx);
-        if (t && t.k === "List" && ft && ft.k === "Fun") {
-          if (!tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool") this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
+        if (t && t.k === "List" && ft) {
+          if (ft.k !== "Fun" || ft.params.length !== 1 || !tyEq(ft.params[0], t.elem) || ft.ret.k !== "Bool")
+            this.err({ code: "type_mismatch", at: e.id, expected: `(${showTy(t.elem)}) -> Bool`, actual: showTy(ft), scope: this.scopeOf(ctx) });
         }
         return t && t.k === "List" ? { k: "Option", elem: t.elem } : null;
       }
@@ -833,6 +863,7 @@ var Checker = class {
       return;
     }
     if (e.k === "app" && e.fn === "fold") {
+      if (!this.checkArity(e, POLY_ARITY.fold, ctx)) return;
       const t0 = this.synth(e.args[0], ctx);
       if (t0 && t0.k !== "List") this.err({ code: "type_mismatch", at: e.id, expected: "List[?]", actual: showTy(t0), scope: this.scopeOf(ctx) });
       this.check(e.args[1], want, ctx);
@@ -971,8 +1002,12 @@ function evalExpr(e, env, gv) {
       const v = evalExpr(e.e, env, gv);
       return e.op === "!" ? !v : -v;
     }
-    case "bin":
-      return evalBin(e.op, evalExpr(e.l, env, gv), evalExpr(e.r, env, gv), e);
+    case "bin": {
+      const left = evalExpr(e.l, env, gv);
+      if (e.op === "&&") return left ? evalExpr(e.r, env, gv) : false;
+      if (e.op === "||") return left ? true : evalExpr(e.r, env, gv);
+      return evalBin(e.op, left, evalExpr(e.r, env, gv), e);
+    }
     case "app": {
       const fv = env.get(e.fn) ?? gv.get(e.fn);
       if (typeof fv !== "function") throw new RuntimeErr(`\u547C\u3073\u51FA\u305B\u306A\u3044 '${e.fn}'`);
@@ -1004,10 +1039,6 @@ function evalBin(op, l, r, e) {
       return e.nt === "Int" ? Math.trunc(q) : q;
     }
     // 型注釈で Int/Float 除算を決める
-    case "&&":
-      return l && r;
-    case "||":
-      return l || r;
     case "==":
       return structEq(l, r);
     case "!=":
@@ -1091,6 +1122,23 @@ function showExpr(e) {
 function evalInProgram(prog, exprSrc) {
   return evalExpr(parseExpr(exprSrc), /* @__PURE__ */ new Map(), buildGV(prog));
 }
+var POLY_SIGS = {
+  length: "(List[T]) -> Int",
+  get: "(List[T], Int) -> T",
+  head: "(List[T]) -> T",
+  tail: "(List[T]) -> List[T]",
+  append: "(List[T], T) -> List[T]",
+  toString: "(Int|Float|Bool|String) -> String",
+  headOr: "(List[T], T) -> T",
+  getOr: "(List[T], Int, T) -> T",
+  some: "(T) -> Option[T]",
+  isSome: "(Option[T]) -> Bool",
+  unwrapOr: "(Option[T], T) -> T",
+  find: "(List[T], (T) -> Bool) -> Option[T]",
+  map: "(List[T], (T) -> U) -> List[U]; (Option[T], (T) -> U) -> Option[U]",
+  filter: "(List[T], (T) -> Bool) -> List[T]",
+  fold: "(List[T], U, (U, T) -> U) -> U"
+};
 function showProgram(prog) {
   return prog.fns.map((f) => {
     const params = f.params.map((p) => `${p.name} : ${showTy(p.ty)}`).join(", ");
@@ -1105,6 +1153,7 @@ end ${f.name}`;
 // core/tojs.ts
 var PRELUDE = `const $rt = {
   sqrt: Math.sqrt,
+  div: (a, b, isInt) => { if (b === 0) throw new Error("0 \u9664\u7B97"); const q = a / b; return isInt ? Math.trunc(q) : q; },
   toFloat: (n) => n,
   toInt: (x) => Math.trunc(x),
   dot: (a, b) => a.reduce((s, x, i) => s + x * b[i], 0),
@@ -1176,7 +1225,7 @@ function exprToJs(e) {
       return `(${e.op}${exprToJs(e.e)})`;
     case "bin": {
       const l = exprToJs(e.l), r = exprToJs(e.r);
-      if (e.op === "/" && e.nt === "Int") return `Math.trunc(${l} / ${r})`;
+      if (e.op === "/") return `$rt.div(${l}, ${r}, ${e.nt === "Int"})`;
       if (e.op === "==") return `$rt.eq(${l}, ${r})`;
       if (e.op === "!=") return `(!$rt.eq(${l}, ${r}))`;
       return `(${l} ${e.op} ${r})`;

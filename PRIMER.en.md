@@ -36,6 +36,7 @@ end dist
 
 - Operators: `+ - * /` (`/` truncates on Int; **`+` also concatenates Strings**),
   comparisons `== != > >= < <=` (`==` compares lists/records **deeply**), logic `&& || !`
+- `a && b` evaluates `a` once and evaluates `b` only when `a` is true; `a || b` evaluates `b` only when `a` is false. Both operands are still statically checked as `Bool`, even when the right side is unreachable; this does not make ordinary calls such as `some` or `unwrapOr` lazy.
 - Branching is an expression: `if(cond, then, else)`
 - Binding: `let x : T = expr in expr`
 - Anonymous functions: `fn (x) => x * 2.0` (parameter type annotations optional)
@@ -76,6 +77,7 @@ unwrapOr(map(find(es, p), fn (e) => e.cat), "none")   -- find then transform (ma
 - `ailex check f.ax` → structured JSON diagnostics. Type errors include the **scope**
   (every usable name with its type); unknown record fields include the **list of available fields**;
   runtime failures come back as `{code: "runtime", detail}`.
+- Every call requires exact arity; `arity_mismatch` reports `{at, name, expected, actual, scope}`, where `expected` and `actual` are argument counts.
 - `ailex scope f.ax [fnName]` → machine-readable names-and-types in scope.
 - `ailex run f.ax` → type-check + contract-check, then transpile to JavaScript and execute.
 - When repairing from diagnostics, use **only names listed in `scope`/`fields`** — nothing else exists.
