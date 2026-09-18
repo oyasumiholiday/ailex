@@ -18,6 +18,17 @@ intentir run todo.intent CompleteTask \
 
 各コマンドは別プロセスで実行できます。`todo.db` が状態を保持します。`intentir test` が検証するのはソース内のテストシナリオであり、永続 DB の内容ではありません。空のタイトルは契約違反として拒否され、保存済みタスクの内容は変更されません。
 
+## 保存状態の読み取り（IntentIR 0.15.0a3 以上）
+
+この節は任意で、IntentIR 0.15.0a3 以上が必要です。0.15.0a3 は現在 **UNRELEASED** の開発版です。`read` は JSON を自動で出力し、action の実行やデータベースの新規作成は行いません。Complete 後の状態全体と `Task` だけの状態は、次のどちらでも確認できます。
+
+```sh
+intentir read todo.intent --db todo.db
+intentir read todo.intent --db todo.db --entity Task
+```
+
+どちらの `state` も `{"Task":[{"done":true,"id":"task-1","title":"牛乳を買う"}]}` です。
+
 ## Patch とマイグレーション
 
 Patch を適用する前に、書き込みプロセスを停止し、`todo.intent` と `todo.db` を対でバックアップしてください。ソースだけ、または DB だけの復元はスキーマ不一致の原因になります。最初の `migrate` は計画だけを表示し、2回目で適用します。
@@ -32,12 +43,30 @@ intentir run todo.intent RenameTask \
 
 移行後も `done` は保持され、新しい `priority` は既定値 `0` になります。
 
+0.15.0a3 以上では、Patch 直後の `read` はスキーマ不一致の JSON 診断を出して終了ステータス 1 で拒否されます。明示的な `migrate --apply` が成功するまで読み取りません。移行と Rename 後は、任意で次を実行できます。
+
+```sh
+intentir read todo.intent --db todo.db --entity Task
+```
+
+`state` は `{"Task":[{"done":true,"id":"task-1","priority":0,"title":"牛乳を2本買う"}]}` です。
+
+`read` は SQLite を `mode=ro` で開き、論理データ、スキーマ、journal mode を変更しません。ただし、SQLite による `-wal` / `-shm` sidecar の利用や作成まで禁止するものではありません。
+
 CRUD の流れを完了する場合は、最後にタスクを削除できます。
 
 ```sh
 intentir run todo.intent DeleteTask \
   --input '{"id":"task-1"}' --db todo.db
 ```
+
+0.15.0a3 以上では、削除後に任意で次を実行できます。
+
+```sh
+intentir read todo.intent --db todo.db
+```
+
+`state` は `{"Task":[]}` です。
 
 ## 注意事項
 

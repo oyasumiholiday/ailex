@@ -11,7 +11,7 @@
 
 必要なのは Python 3.11 以上と、標準の `venv` / `pip` です。Windows のコマンド例では、ネイティブコマンドへの JSON 引数を引用符どおり渡すため PowerShell 7.3 以上を使用してください。コマンドは仮想環境を有効化せず、仮想環境内の実行ファイルを直接呼び出します。
 
-この開発版について Windows の検証済みとは主張しません。公開済み `0.15.0a2` の検証結果とは区別してください。
+[commit `2303133b1b01fc401d8abef32566b670941548f3`](https://github.com/oyasumiholiday/ailex/commit/2303133b1b01fc401d8abef32566b670941548f3) の wheel に対する read ライフサイクルは、Windows Server 2022 と Python 3.11 / 3.13 の [CI](https://github.com/oyasumiholiday/ailex/actions/runs/35323726607) で成功しています。ただし、ガイド全体、Windows 10 / 11、または物理 Windows 環境を検証した結果ではありません。公開済み `0.15.0a2` の検証結果とも区別してください。
 
 ## 共有 ZIP から試す
 
@@ -56,6 +56,13 @@ APP="$ZIP_ROOT/my-todo"
   --input '{"id":"task-1","title":"牛乳を買う"}' --db "$APP/todo.db"
 "$INTENTIR" run "$APP/todo.intent" CompleteTask \
   --input '{"id":"task-1"}' --db "$APP/todo.db"
+"$INTENTIR" read "$APP/todo.intent" --db "$APP/todo.db"
+```
+
+最後の `read` は JSON を自動で出力します。`--json` は不要です。`state` は次の内容になり、action の実行やデータベースの新規作成は行いません。
+
+```json
+{"Task":[{"done":true,"id":"task-1","title":"牛乳を買う"}]}
 ```
 
 Patch の前に、書き込みプロセスをすべて停止し、停止したままソースと DB を必ず対でバックアップしてください。以下は既存のバックアップ先を上書きせず、DB を read-only URI で開いて SQLite の backup API で複製します。
@@ -88,16 +95,28 @@ PY
 "$INTENTIR" migrate "$APP/todo.intent" --db "$APP/todo.db" --apply --json
 "$INTENTIR" run "$APP/todo.intent" RenameTask \
   --input '{"id":"task-1","title":"牛乳を2本買う"}' --db "$APP/todo.db"
+"$INTENTIR" read "$APP/todo.intent" --db "$APP/todo.db" --entity Task
 ```
 
-これは停止中の writer を前提とした対の取得であり、ホットバックアップやソースと DB をまたぐ原子的スナップショットではありません。ロールバック時も、ソースだけではなく同じバックアップにある DB と対で復元してください。
+Patch 適用後、`migrate --apply` 前に `read` を実行した場合は、ソースと保存済み DB のスキーマが一致しないため、JSON 診断を出して終了ステータス 1 で拒否されます。上記手順では、先に明示的な移行を済ませてから `read` します。
 
-移行後の出力では、完了状態が保持され、`priority` が既定値 `0` になっていることを確認できます。不要になったタスクは任意で削除できます。
+これは停止中の writer を前提とした対の取得であり、ホットバックアップやソースと DB をまたぐ原子的スナップショットではありません。ロールバック時も、ソースだけではなく同じバックアップにある DB と対で復元してください。`read` は SQLite を `mode=ro` で開き、論理データ、スキーマ、journal mode を変更しませんが、SQLite による `-wal` / `-shm` sidecar の利用や作成まで禁止するものではありません。
+
+移行後の `read --entity Task` の `state` は次の内容です。完了状態が保持され、`priority` が既定値 `0` になっていることを確認できます。`--entity` は指定した entity だけを返します。
+
+```json
+{"Task":[{"done":true,"id":"task-1","priority":0,"title":"牛乳を2本買う"}]}
+```
+
+不要になったタスクは任意で削除できます。
 
 ```sh
 "$INTENTIR" run "$APP/todo.intent" DeleteTask \
   --input '{"id":"task-1"}' --db "$APP/todo.db"
+"$INTENTIR" read "$APP/todo.intent" --db "$APP/todo.db"
 ```
+
+削除後の `read` の `state` は `{"Task":[]}` です。`read` は module 全体を読み込んで検証してから結果を返し、filter 言語や pagination は備えていないため、小さなローカルアプリ向けです。
 
 ## 3 形式のサンプルを実行する
 
