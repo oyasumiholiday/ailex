@@ -1,6 +1,6 @@
 [project]
 name = "intentir"
-version = "0.15.0a1"
+version = "0.15.0a2"
 description = "A content-addressed semantic IR with executable contracts for AI development workflows."
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -22,3 +22,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["intentir*"]
+
+[tool.setuptools.package-data]
+"intentir.templates.todo" = [
+  "README_JA.md",
+  "add_task_priority.patch.json",
+  "todo.intent",
+]

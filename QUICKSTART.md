@@ -4,13 +4,13 @@ Use this page for a short local or Container trial. No model API key, database s
 
 ## Install the prerelease wheel
 
-Requires Python 3.11 or newer. This preview uses the tag `intentir-v0.14.0`; install its wheel without a source checkout and run the standalone demonstration:
+Requires Python 3.11 or newer. The current public preview uses the tag `intentir-v0.15.0a1`; install its wheel without a source checkout and run the standalone demonstration:
 
 ```sh
 DEMO_ENV="$(mktemp -d)"
 python3 -m venv "$DEMO_ENV"
 "$DEMO_ENV/bin/pip" install --no-deps \
-  https://github.com/oyasumiholiday/ailex/releases/download/intentir-v0.14.0/intentir-0.14.0-py3-none-any.whl
+  https://github.com/oyasumiholiday/ailex/releases/download/intentir-v0.15.0a1/intentir-0.15.0a1-py3-none-any.whl
 "$DEMO_ENV/bin/intentir" demo concurrent-agent
 ```
 
@@ -33,8 +33,6 @@ node core/cli.ts run examples/points.ax
 npm test
 ```
 
-The final test line should report `89/89 passed`.
-
 ## Try IntentIR
 
 Requires Python 3.11 or newer. IntentIR has no mandatory third-party runtime dependency.
@@ -54,6 +52,22 @@ python3 -m venv .venv
 .venv/bin/pip install .
 .venv/bin/intentir demo concurrent-agent
 ```
+
+## Todo starter (0.15.0a2 UNRELEASED)
+
+The `init` command is currently available only from a source installation of the unreleased `0.15.0a2` development version. It creates a new directory from resources packaged inside IntentIR; it does not read examples from the repository at runtime.
+
+```sh
+python3 -m venv .venv
+TODO_ENV="$(pwd)/.venv"
+"$TODO_ENV/bin/pip" install .
+"$TODO_ENV/bin/intentir" init todo "$HOME/intentir-todo" --json
+cd "$HOME/intentir-todo"
+"$TODO_ENV/bin/intentir" check todo.intent --json
+"$TODO_ENV/bin/intentir" test todo.intent --json
+```
+
+The destination parent must already exist. `init` refuses every existing destination, including an empty directory, file, or symlink, and does not create a database or make API or model calls. See the generated `README_JA.md` for the persistent create/complete flow and the backup, Patch, and migration procedure.
 
 ## Persistent Todo, Patch, and Migration
 
