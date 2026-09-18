@@ -4,13 +4,13 @@ Use this page for a short local or Container trial. No model API key, database s
 
 ## Install the prerelease wheel
 
-Requires Python 3.11 or newer. The current public preview uses the tag `intentir-v0.15.0a2`; install its wheel without a source checkout and run the standalone demonstration:
+Requires Python 3.11 or newer. Install the `intentir-v0.15.0a3` alpha wheel without a source checkout and run the standalone demonstration:
 
 ```sh
 DEMO_ENV="$(mktemp -d)"
 python3 -m venv "$DEMO_ENV"
 "$DEMO_ENV/bin/pip" install --no-deps \
-  https://github.com/oyasumiholiday/ailex/releases/download/intentir-v0.15.0a2/intentir-0.15.0a2-py3-none-any.whl
+  https://github.com/oyasumiholiday/ailex/releases/download/intentir-v0.15.0a3/intentir-0.15.0a3-py3-none-any.whl
 "$DEMO_ENV/bin/intentir" demo concurrent-agent
 ```
 
@@ -26,9 +26,14 @@ TODO_APP="$TODO_PARENT/my-todo"
 "$DEMO_ENV/bin/intentir" init todo "$TODO_APP" --json
 "$DEMO_ENV/bin/intentir" check "$TODO_APP/todo.intent" --json
 "$DEMO_ENV/bin/intentir" test "$TODO_APP/todo.intent" --json
+"$DEMO_ENV/bin/intentir" run "$TODO_APP/todo.intent" CreateTask \
+  --input '{"id":"task-1","title":"牛乳を買う"}' --db "$TODO_APP/todo.db"
+"$DEMO_ENV/bin/intentir" run "$TODO_APP/todo.intent" CompleteTask \
+  --input '{"id":"task-1"}' --db "$TODO_APP/todo.db"
+"$DEMO_ENV/bin/intentir" read "$TODO_APP/todo.intent" --db "$TODO_APP/todo.db"
 ```
 
-The starter comes from resources packaged in the wheel. Initialization creates no database and makes no API or model calls. See the generated `README_JA.md` for persistent CRUD, paired backup, Patch, and migration commands. The [Japanese public trial checklist](docs/PUBLIC_TRIAL_JA.md) provides a release-pinned walkthrough.
+The starter comes from resources packaged in the wheel. Initialization creates no database and makes no API or model calls. The commands above have already completed the generated guide's Create and Complete steps; continue at its optional read section or the backup and Patch section instead of creating `task-1` again. See the generated `README_JA.md` for the full persistent CRUD, paired backup, Patch, and migration commands. The [historical alpha2 Japanese public trial checklist](docs/PUBLIC_TRIAL_JA.md) remains pinned to that release.
 
 ## Use a source checkout
 
@@ -80,6 +85,7 @@ python3 -m intentir run "$WORK/todo.intent" CreateTask \
   --input '{"id":"task-1","title":"buy milk"}' --db "$WORK/todo.db"
 python3 -m intentir run "$WORK/todo.intent" CompleteTask \
   --input '{"id":"task-1"}' --db "$WORK/todo.db"
+python3 -m intentir read "$WORK/todo.intent" --db "$WORK/todo.db"
 ```
 
 ### Optional backup before patching
@@ -119,7 +125,10 @@ python3 -m intentir migrate "$WORK/todo.intent" --db "$WORK/todo.db" --apply
 
 python3 -m intentir run "$WORK/todo.intent" RenameTask \
   --input '{"id":"task-1","title":"buy oat milk"}' --db "$WORK/todo.db"
+python3 -m intentir read "$WORK/todo.intent" --db "$WORK/todo.db" --entity Task
 ```
+
+After the Patch is applied and before `migrate --apply` succeeds, `read` is rejected because the source and database schemas do not match. After migration, `read` returns the preserved `done: true`, the renamed title, and the default `priority: 0`.
 
 ### Optional restore rehearsal
 
@@ -177,6 +186,7 @@ The original walkthrough can optionally finish by deleting the task from the mig
 ```sh
 python3 -m intentir run "$WORK/todo.intent" DeleteTask \
   --input '{"id":"task-1"}' --db "$WORK/todo.db"
+python3 -m intentir read "$WORK/todo.intent" --db "$WORK/todo.db"
 ```
 
 Every IntentIR command is a new process. The SQLite database preserves the completed task between them; the migration fills the newly added `priority` field with its default `0`. The rename output therefore contains `done: true`, the new title, and `priority: 0`, and the final delete output contains an empty `Task` list. The first `migrate` only prints the plan; the second applies it.

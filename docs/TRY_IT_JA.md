@@ -1,8 +1,8 @@
 # IntentIR notation lab alpha を試す
 
-> **UNRELEASED 開発版 (`0.15.0a3`)**
+> **IntentIR `0.15.0a3` alpha 向けガイド**
 >
-> `0.15.0a3` の公開 ZIP はまだありません。公開済み `0.15.0a2` を試す場合は、[Release](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a2) と [固定版ガイド](https://github.com/oyasumiholiday/ailex/blob/cb154fb1f56476644b9237fb191dad5002fe3f99/docs/TRY_IT_JA.md) を使用してください。これは開発中の限定ガイドであり、本番利用への適合を約束するものではありません。
+> `0.15.0a3` の配布 ZIP を受け取った場合に使用する preview ガイドです。公開済み `0.15.0a2` の履歴は、[Release](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a2) と [固定版ガイド](https://github.com/oyasumiholiday/ailex/blob/cb154fb1f56476644b9237fb191dad5002fe3f99/docs/TRY_IT_JA.md) で確認できます。本番利用への適合を約束するものではありません。
 
 このガイドは、次のどちらからでも利用できます。
 
@@ -15,7 +15,7 @@
 
 ## 共有 ZIP から試す
 
-以下の手順は、開発版の共有 ZIP をローカルで構築した場合に、`README_JA.md` と `intentir-0.15.0a3-py3-none-any.whl` が見えるディレクトリで実行します。公開ダウンロード手順ではありません。
+ZIP を展開し、`README_JA.md` と `intentir-0.15.0a3-py3-none-any.whl` が見えるディレクトリで以下を実行します。
 
 ### macOS / Linux
 

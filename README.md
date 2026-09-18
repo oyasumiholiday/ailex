@@ -1,6 +1,6 @@
 # Ailex + IntentIR
 
-公開中の IntentIR `0.15.0a2` alpha は [GitHub Release](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a2) から試せます。公開版の日本語手順は [`cb154fb` 固定ガイド](https://github.com/oyasumiholiday/ailex/blob/cb154fb1f56476644b9237fb191dad5002fe3f99/docs/TRY_IT_JA.md)、動作確認の記録には [公開試用チェックリスト](docs/PUBLIC_TRIAL_JA.md) を参照してください。現在の [docs/TRY_IT_JA.md](docs/TRY_IT_JA.md) は未リリース `0.15.0a3` の開発ガイドです。
+IntentIR `0.15.0a3` alpha のリリース時の参照先は [GitHub Release](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a3) と [タグ固定の日本語ガイド](https://github.com/oyasumiholiday/ailex/blob/intentir-v0.15.0a3/docs/TRY_IT_JA.md) です。`0.15.0a3` では、保存済み SQLite 状態を action を実行せず JSON で読む `intentir read` が追加されました。従来の `0.15.0a2` 向け動作確認は [alpha2 公開試用チェックリスト](docs/PUBLIC_TRIAL_JA.md) として残しています。
 
 This repository contains two related AI-first programming prototypes with separate implementations:
 
@@ -197,7 +197,6 @@ python3 -m intentir run examples/todo_crud.intent CompleteTask \
   --db /tmp/todo.db
 
 # Read the complete validated module state without invoking an Action
-# (0.15.0a3 UNRELEASED; install from the current source checkout)
 python3 -m intentir read examples/todo_crud.intent --db /tmp/todo.db
 python3 -m intentir read examples/todo_crud.intent --db /tmp/todo.db --entity Task
 
@@ -420,7 +419,7 @@ The first database write and keyless Entity changes use a full relational replac
 
 `migrate` is plan-only by default. `--apply` performs the state transform and target-schema validation in one SQLite transaction. Destructive operations additionally require `--allow-destructive`; changes that need per-record values remain blocked as `manual`.
 
-The unreleased `0.15.0a3` `read` command opens an existing database through SQLite [`mode=ro`](https://www.sqlite.org/uri.html), starts a read transaction, validates the stored schema hash and complete normalized module state, and only then applies the optional Entity selection. It does not invoke an Action or change logical data, schema, or journal mode. It intentionally offers neither arbitrary SQL nor a filtering or pagination language, so it is appropriate for small local applications whose complete module state fits in memory. Read-only WAL access can still coordinate through existing or newly created `-wal`/`-shm` sidecars as described by the SQLite [WAL documentation](https://www.sqlite.org/wal.html); this is not a promise of zero filesystem effects. It does not use `immutable=1`, because that can ignore live WAL and change detection.
+The `0.15.0a3` `read` command opens an existing database through SQLite [`mode=ro`](https://www.sqlite.org/uri.html), starts a read transaction, validates the stored schema hash and complete normalized module state, and only then applies the optional Entity selection. It does not invoke an Action or change logical data, schema, or journal mode. It intentionally offers neither arbitrary SQL nor a filtering or pagination language, so it is appropriate for small local applications whose complete module state fits in memory. Read-only WAL access can still coordinate through existing or newly created `-wal`/`-shm` sidecars as described by the SQLite [WAL documentation](https://www.sqlite.org/wal.html); this is not a promise of zero filesystem effects. It does not use `immutable=1`, because that can ignore live WAL and change detection.
 
 ## Architecture
 

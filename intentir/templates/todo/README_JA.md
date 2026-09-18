@@ -4,7 +4,7 @@
 
 ## 作成と永続化
 
-Python 3.11 以上と IntentIR 0.15.0a2 が必要です。以下は macOS / Linux の shell 例です。`DEST` は `intentir init todo DEST` で作成したディレクトリに置き換え、生成先から実行してください。Quickstart のように仮想環境を有効化していない場合は、各 `intentir` を `"$TODO_ENV/bin/intentir"` に置き換えます。
+Python 3.11 以上と IntentIR 0.15.0a2 が必要です。以下は macOS / Linux の shell 例です。`DEST` は `intentir init todo DEST` で作成したディレクトリに置き換え、生成先から実行してください。Quickstart のように仮想環境を有効化していない場合は、各 `intentir` を `"$DEMO_ENV/bin/intentir"` など、実際にインストールした仮想環境内の実行ファイルパスに置き換えます。共有 ZIP ガイドで `$INTENTIR` を設定した場合は、その変数を使用します。
 
 ```sh
 cd DEST
@@ -20,7 +20,7 @@ intentir run todo.intent CompleteTask \
 
 ## 保存状態の読み取り（IntentIR 0.15.0a3 以上）
 
-この節は任意で、IntentIR 0.15.0a3 以上が必要です。0.15.0a3 は現在 **UNRELEASED** の開発版です。`read` は JSON を自動で出力し、action の実行やデータベースの新規作成は行いません。Complete 後の状態全体と `Task` だけの状態は、次のどちらでも確認できます。
+この節は任意で、IntentIR 0.15.0a3 以上が必要です。`read` は JSON を自動で出力し、action の実行やデータベースの新規作成は行いません。Complete 後の状態全体と `Task` だけの状態は、次のどちらでも確認できます。
 
 ```sh
 intentir read todo.intent --db todo.db
