@@ -1,0 +1,1 @@
+{"i":[["fee","Integer"],["price","Integer"],["quantity","Integer"]],"n":[["n0","Integer","input","price"],["n1","Integer","input","quantity"],["n2","Integer","multiply","n0","n1"],["n3","Integer","input","fee"],["n4","Integer","add","n2","n3"]],"r":"n4","v":1}

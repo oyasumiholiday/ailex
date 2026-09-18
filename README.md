@@ -1,5 +1,7 @@
 # Ailex + IntentIR
 
+日本語で notation lab の alpha プレビューを試す場合は、[docs/TRY_IT_JA.md](docs/TRY_IT_JA.md) を参照してください。ソースチェックアウト向けの手順と、共有 ZIP 展開後のオフライン手順を分けて掲載しています。
+
 This repository contains two related AI-first programming prototypes with separate implementations:
 
 - [Ailex](AILEX_README.md) is a compact typed language implemented by the TypeScript checker, interpreter, and JavaScript backend in `core/`.

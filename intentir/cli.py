@@ -31,6 +31,7 @@ from intentir.formatter import format_source
 from intentir.generators.typescript import generate_typescript
 from intentir.migration import MigrationError, apply_migration, plan_migration
 from intentir.model_adapter import ExternalCommandModelAdapter, ModelAdapterError
+from intentir.notation_lab import NotationError, demo_result as notation_lab_demo_result
 from intentir.patch import PatchError, patch_path
 from intentir.parser import ParseError
 from intentir.pilot import PilotError, preflight_pilot, render_pilot_result, run_pilot
@@ -191,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo = commands.add_parser(
         "demo", help="run a self-contained IntentIR demonstration"
     )
-    demo.add_argument("scenario", choices=("concurrent-agent",))
+    demo.add_argument("scenario", choices=("concurrent-agent", "notation-lab"))
     demo.add_argument("--json", action="store_true", help="emit structured output")
 
     benchmark = commands.add_parser(
@@ -532,9 +533,15 @@ def command_demo(args: argparse.Namespace) -> None:
     try:
         if args.scenario == "concurrent-agent":
             result = run_concurrent_agent_demo()
+        elif args.scenario == "notation-lab":
+            result = notation_lab_demo_result()
         else:
             raise ConcurrentAgentDemoError(f"unknown demo scenario: {args.scenario}")
-    except ConcurrentAgentDemoError as error:
+    except (ConcurrentAgentDemoError, NotationError) as error:
+        if isinstance(error, NotationError):
+            code = error.code
+        else:
+            code = "concurrent_agent_demo_failed"
         if args.json:
             print(
                 json.dumps(
@@ -542,7 +549,7 @@ def command_demo(args: argparse.Namespace) -> None:
                         "ok": False,
                         "diagnostics": [
                             {
-                                "code": "concurrent_agent_demo_failed",
+                                "code": code,
                                 "message": str(error),
                             }
                         ],
@@ -557,8 +564,23 @@ def command_demo(args: argparse.Namespace) -> None:
 
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
+    elif args.scenario == "notation-lab":
+        print(render_notation_lab_demo(result), end="")
     else:
         print(render_concurrent_agent_demo(result), end="")
+
+
+def render_notation_lab_demo(result: dict[str, Any]) -> str:
+    representations = result["representations"]
+    lines = [
+        "IntentIR notation lab",
+        f"  expression result: {representations['expression']['result']}",
+        f"  graph JSON result: {representations['graph-json']['result']}",
+        f"  rows JSON result: {representations['rows-json']['result']}",
+        f"  representations equivalent: {'yes' if result['equivalent'] else 'no'}",
+        f"  patched result: {result['patch']['result']}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def command_benchmark(args: argparse.Namespace) -> None:
