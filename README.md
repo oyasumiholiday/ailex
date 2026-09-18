@@ -1,6 +1,6 @@
 # Ailex + IntentIR
 
-日本語で notation lab の alpha プレビューを試す場合は、[docs/TRY_IT_JA.md](docs/TRY_IT_JA.md) を参照してください。ソースチェックアウト向けの手順と、共有 ZIP 展開後のオフライン手順を分けて掲載しています。
+公開中の IntentIR `0.15.0a2` alpha は [GitHub Release](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a2) から試せます。日本語の配布手順は [docs/TRY_IT_JA.md](docs/TRY_IT_JA.md)、公開版の動作確認を記録する場合は [公開試用チェックリスト](docs/PUBLIC_TRIAL_JA.md) を参照してください。ソース checkout は不要です。
 
 This repository contains two related AI-first programming prototypes with separate implementations:
 
@@ -447,7 +447,7 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The Ailex suite contains 89 conformance cases. The IntentIR suite contains 116 tests: 115 dependency-free tests and one optional end-to-end MCP stdio test. It covers Tool discovery, structured success/failure results, root-path containment, benchmark path/diff boundaries, four editing adapters, cumulative trajectories, chained comparisons, immutable function locals, external model provenance and failure classification, the offline-tested OpenAI wrapper, concurrent-agent stale rejection and refresh, Patch validation/application, TypeScript/SQLite builds, and all prior compiler/runtime/storage behavior.
+The Ailex suite checks parser, type-system, contract, interpreter, and JavaScript-backend conformance. The IntentIR suite covers compiler/runtime/storage behavior, CLI and structured diagnostics, packaged starters, Patch and migration flows, Agent/MCP boundaries, benchmark adapters, demonstrations, and wheel/distribution behavior. These suites exercise the documented implementation surfaces; passing them is not a broad guarantee of correctness, security, production suitability, or behavior on untested platforms.
 
 ## License
 
