@@ -280,7 +280,7 @@ wheels = [
 
 [[package]]
 name = "intentir"
-version = "0.15.0a2"
+version = "0.15.0a3"
 source = { editable = "." }
 
 [package.optional-dependencies]

@@ -29,12 +29,29 @@ class StateRepository(Protocol):
 
 
 class SQLiteStateRepository:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self.path = path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path, isolation_level=None)
-        self.connection.execute("PRAGMA busy_timeout = 5000")
-        self.connection.execute("PRAGMA foreign_keys = ON")
+        self.read_only = read_only
+        if read_only:
+            resolved = path.resolve(strict=True)
+            self.connection = sqlite3.connect(
+                resolved.as_uri() + "?mode=ro",
+                uri=True,
+                isolation_level=None,
+            )
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.connection = sqlite3.connect(path, isolation_level=None)
+        try:
+            self.connection.execute("PRAGMA busy_timeout = 5000")
+            self.connection.execute("PRAGMA foreign_keys = ON")
+            if not read_only:
+                self._initialize_writable_database()
+        except BaseException:
+            self.connection.close()
+            raise
+
+    def _initialize_writable_database(self) -> None:
         self.connection.execute("PRAGMA journal_mode = WAL")
         self.connection.execute(
             """
@@ -75,7 +92,7 @@ class SQLiteStateRepository:
 
     @contextmanager
     def transaction(self) -> Iterator["SQLiteStateRepository"]:
-        self.connection.execute("BEGIN IMMEDIATE")
+        self.connection.execute("BEGIN" if self.read_only else "BEGIN IMMEDIATE")
         try:
             yield self
         except BaseException:
@@ -99,8 +116,22 @@ class SQLiteStateRepository:
         return stored["state"]
 
     def inspect(self, module: str) -> dict[str, Any] | None:
+        columns = {
+            row[1]
+            for row in self.connection.execute("PRAGMA table_info(intentir_state)")
+        }
+        required = {"module", "schema_hash", "state_json"}
+        if not columns:
+            raise StorageError("database does not contain IntentIR metadata")
+        if not required <= columns:
+            missing = ", ".join(sorted(required - columns))
+            raise StorageError(f"unsupported IntentIR metadata; missing columns: {missing}")
+        schema_column = "schema_json" if "schema_json" in columns else "NULL"
+        format_column = (
+            "storage_format" if "storage_format" in columns else "'json-v1'"
+        )
         row = self.connection.execute(
-            "SELECT schema_hash, schema_json, state_json, storage_format "
+            f"SELECT schema_hash, {schema_column}, state_json, {format_column} "
             "FROM intentir_state WHERE module = ?",
             (module,),
         ).fetchone()
@@ -133,6 +164,7 @@ class SQLiteStateRepository:
         }
 
     def save(self, ir: dict[str, Any], state: dict[str, Any]) -> None:
+        self._require_writable()
         if self.connection.in_transaction:
             self._save(ir, state)
         else:
@@ -146,6 +178,7 @@ class SQLiteStateRepository:
         after_state: dict[str, Any],
         changed_entities: set[str],
     ) -> str:
+        self._require_writable()
         if self.connection.in_transaction:
             return self._save_changes(
                 ir, before_state, after_state, changed_entities
@@ -154,6 +187,10 @@ class SQLiteStateRepository:
             return self._save_changes(
                 ir, before_state, after_state, changed_entities
             )
+
+    def _require_writable(self) -> None:
+        if self.read_only:
+            raise StorageError("repository is read-only")
 
     def _save(self, ir: dict[str, Any], state: dict[str, Any]) -> None:
         schema = storage_schema(ir)
@@ -455,7 +492,12 @@ class SQLiteStateRepository:
     def load_relational_state(
         self, module: str, schema: dict[str, Any]
     ) -> dict[str, list[dict[str, Any]]]:
-        projection = sqlite_projection(module, schema)
+        try:
+            projection = sqlite_projection(module, schema)
+        except (KeyError, TypeError, ValueError) as error:
+            raise StorageError(
+                f"database schema for module {module} is malformed"
+            ) from error
         stored_relations = {
             row[0]: {"table": row[1], "projectionId": row[2]}
             for row in self.connection.execute(
