@@ -58,6 +58,7 @@ COMMANDS = {
     "test",
     "call",
     "run",
+    "read",
     "migrate",
     "patch",
     "agent",
@@ -94,6 +95,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "test": command_test,
         "call": command_call,
         "run": command_run,
+        "read": command_read,
         "migrate": command_migrate,
         "patch": command_patch,
         "agent": command_agent,
@@ -156,6 +158,11 @@ def build_parser() -> argparse.ArgumentParser:
     state_source.add_argument("--state", type=Path, help="JSON state file")
     state_source.add_argument("--db", type=Path, help="persistent SQLite database")
     run.add_argument("--write-state", type=Path, help="write resulting JSON state")
+
+    read = commands.add_parser("read", help="read persistent SQLite state")
+    read.add_argument("source", type=Path)
+    read.add_argument("--db", type=Path, required=True)
+    read.add_argument("--entity", help="return only one declared entity")
 
     migrate = commands.add_parser("migrate", help="plan or apply a SQLite schema migration")
     migrate.add_argument("source", type=Path)
@@ -454,6 +461,64 @@ def command_run(args: argparse.Namespace) -> None:
         )
     if not result["ok"]:
         raise SystemExit(1)
+
+
+def command_read(args: argparse.Namespace) -> None:
+    try:
+        ir = compile_program_path(args.source)
+        entities = {
+            node["name"] for node in ir["nodes"] if node["kind"] == "entity"
+        }
+        if args.entity is not None and args.entity not in entities:
+            available = ", ".join(sorted(entities))
+            raise ReadCommandError(
+                "unknown_entity",
+                f"unknown entity {args.entity!r}; available: {available}",
+            )
+        with SQLiteStateRepository(args.db, read_only=True) as repository:
+            with repository.transaction():
+                state = repository.load(ir)
+                if state is None:
+                    raise ReadCommandError(
+                        "module_not_found",
+                        f"database contains no state for module {ir['module']}",
+                    )
+                normalized = normalize_state(ir, state)
+        selected = (
+            {args.entity: normalized[args.entity]}
+            if args.entity is not None
+            else normalized
+        )
+        result = {
+            "ok": True,
+            "module": ir["module"],
+            "state": selected,
+            "storage": {
+                "kind": "sqlite",
+                "path": str(args.db),
+                "readOnly": True,
+            },
+        }
+    except (ParseError, ValidationError) as error:
+        result = error_payload(error)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        raise SystemExit(1) from error
+    except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error) as error:
+        code = error.code if isinstance(error, ReadCommandError) else "read_error"
+        result = {
+            "ok": False,
+            "diagnostics": [{"code": code, "message": str(error)}],
+        }
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        raise SystemExit(1) from error
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+class ReadCommandError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def command_migrate(args: argparse.Namespace) -> None:

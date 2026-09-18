@@ -26,4 +26,4 @@ __all__ = [
     "sqlite_projection",
     "verify_ir",
 ]
-__version__ = "0.15.0a2"
+__version__ = "0.15.0a3"

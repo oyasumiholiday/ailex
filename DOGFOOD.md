@@ -209,3 +209,12 @@ conformance: 78 → **85/85 緑**。全8例緑。受け入れ（aigen Haiku）8/
 - 旧 browser bundle の interpreter では `false && (1 / 0 == 0)` が 0 除算になり、source と bundle の意味論が一致していなかった。
 - Bounded regression は browser bundle の 9 exports、構造化 arity 診断と Option 対応 `map` scope、両 backend の short-circuit guard と 0 除算、parse / contracts の既知 sample を bundle import だけで検査する。これは local unpublished の freshness evidence であり、Website への公開を示さない。
 - Actual local verification では、localhost の `docs/index.html` を headless Chrome で開き、default sample の `main = 5`、invalid arity 診断、short-circuit の `eg` と `main = false`、0 除算の runtime `0 除算` を UI 上で確認し、page error は 0 だった。server / browser は終了済み。`npm audit` は全 dependencies 0 vulnerabilities（dev dependency `esbuild 0.28.2` を lock）、conformance 153 / 153、CLI regressions、browser freshness / regressions が成功し、2 回の build は byte-identical、stale check は cwd 外で read-only だった。これは local unpublished evidence であり、外部 validation ではない。
+
+---
+
+# IntentIR read-only state probe（2026-09-18）
+
+- `python3 -m intentir --help` には永続 SQLite state を Action なしで確認するコマンドがなく、状態を見るには書き込み可能な repository constructor を経由するか、SQLite を直接読む必要があった。
+- 既存 constructor は親ディレクトリ作成、WAL 設定、metadata DDL、legacy `ALTER` を常に行うため、単純な再利用は read-only 要件を満たさなかった。
+- Bounded fix として `intentir read source --db PATH [--entity NAME]` を追加した。`mode=ro` と read transaction で既存 DB を開き、schema hash と module 全体の state normalization を検証してから任意の Entity を選ぶ。Action、任意 SQL、pagination、network は追加しない。
+- 実装後の probe は quiescent DB の本体 hash/header/schema が不変であること、legacy metadata を `ALTER` せず読めること、live WAL の commit を読めること、既存 writer の `BEGIN IMMEDIATE` 中にも snapshot read が競合しないことを固定する。SQLite WAL の sidecar coordination はあり得るため、ゼロ filesystem effect は主張しない。

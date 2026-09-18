@@ -1,8 +1,8 @@
 # IntentIR notation lab alpha を試す
 
-> **Alpha プレビュー (`0.15.0a2`)**
+> **UNRELEASED 開発版 (`0.15.0a3`)**
 >
-> これは実験用の限定デモです。互換性、継続提供、性能、セキュリティ、または本番利用への適合を約束するものではありません。本番システムや重要な計算には使用しないでください。
+> `0.15.0a3` の公開 ZIP はまだありません。公開済み `0.15.0a2` を試す場合は、[Release](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a2) と [固定版ガイド](https://github.com/oyasumiholiday/ailex/blob/cb154fb1f56476644b9237fb191dad5002fe3f99/docs/TRY_IT_JA.md) を使用してください。これは開発中の限定ガイドであり、本番利用への適合を約束するものではありません。
 
 このガイドは、次のどちらからでも利用できます。
 
@@ -11,18 +11,18 @@
 
 必要なのは Python 3.11 以上と、標準の `venv` / `pip` です。Windows のコマンド例では、ネイティブコマンドへの JSON 引数を引用符どおり渡すため PowerShell 7.3 以上を使用してください。コマンドは仮想環境を有効化せず、仮想環境内の実行ファイルを直接呼び出します。
 
-この alpha は macOS 上でローカル検証済みで、Linux は GitHub Actions CI で検証済みです。Windows は未実施です。
+この開発版について Windows の検証済みとは主張しません。公開済み `0.15.0a2` の検証結果とは区別してください。
 
 ## 共有 ZIP から試す
 
-以下の手順は **ZIP を展開した後**、`README_JA.md` と `intentir-0.15.0a2-py3-none-any.whl` が見えるディレクトリで実行してください。
+以下の手順は、開発版の共有 ZIP をローカルで構築した場合に、`README_JA.md` と `intentir-0.15.0a3-py3-none-any.whl` が見えるディレクトリで実行します。公開ダウンロード手順ではありません。
 
 ### macOS / Linux
 
 ```sh
 python3 --version
 python3 -m venv .venv
-.venv/bin/python -m pip install --no-index --no-deps ./intentir-0.15.0a2-py3-none-any.whl
+.venv/bin/python -m pip install --no-index --no-deps ./intentir-0.15.0a3-py3-none-any.whl
 .venv/bin/intentir demo notation-lab
 ```
 
@@ -33,7 +33,7 @@ python3 -m venv .venv
 ```powershell
 py -3.11 --version
 py -3.11 -m venv .venv
-.venv\Scripts\python.exe -m pip install --no-index --no-deps .\intentir-0.15.0a2-py3-none-any.whl
+.venv\Scripts\python.exe -m pip install --no-index --no-deps .\intentir-0.15.0a3-py3-none-any.whl
 .venv\Scripts\intentir.exe demo notation-lab
 ```
 
@@ -177,7 +177,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```powershell
 Get-Content SHA256SUMS
-Get-FileHash -Algorithm SHA256 .\intentir-0.15.0a2-py3-none-any.whl
+Get-FileHash -Algorithm SHA256 .\intentir-0.15.0a3-py3-none-any.whl
 ```
 
 ## 不具合を報告する
