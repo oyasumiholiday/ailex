@@ -1,6 +1,6 @@
 # IntentIR notation lab alpha を試す
 
-> **Alpha プレビュー (`0.15.0a1`)**
+> **Alpha プレビュー (`0.15.0a2`)**
 >
 > これは実験用の限定デモです。互換性、継続提供、性能、セキュリティ、または本番利用への適合を約束するものではありません。本番システムや重要な計算には使用しないでください。
 
@@ -11,18 +11,18 @@
 
 必要なのは Python 3.11 以上と、標準の `venv` / `pip` です。Windows のコマンド例では、ネイティブコマンドへの JSON 引数を引用符どおり渡すため PowerShell 7.3 以上を使用してください。コマンドは仮想環境を有効化せず、仮想環境内の実行ファイルを直接呼び出します。
 
-この alpha は macOS 上でローカル検証済みです。Linux と Windows のコマンドはこのセッションでは実機 OS 上で実行しておらず、CI での確認待ちです。
+この alpha は macOS 上でローカル検証済みで、Linux は GitHub Actions CI で検証済みです。Windows は未実施です。
 
 ## 共有 ZIP から試す
 
-以下の手順は **ZIP を展開した後**、`README_JA.md` と `intentir-0.15.0a1-py3-none-any.whl` が見えるディレクトリで実行してください。
+以下の手順は **ZIP を展開した後**、`README_JA.md` と `intentir-0.15.0a2-py3-none-any.whl` が見えるディレクトリで実行してください。
 
 ### macOS / Linux
 
 ```sh
 python3 --version
 python3 -m venv .venv
-.venv/bin/python -m pip install --no-index --no-deps ./intentir-0.15.0a1-py3-none-any.whl
+.venv/bin/python -m pip install --no-index --no-deps ./intentir-0.15.0a2-py3-none-any.whl
 .venv/bin/intentir demo notation-lab
 ```
 
@@ -33,13 +33,71 @@ python3 -m venv .venv
 ```powershell
 py -3.11 --version
 py -3.11 -m venv .venv
-.venv\Scripts\python.exe -m pip install --no-index --no-deps .\intentir-0.15.0a1-py3-none-any.whl
+.venv\Scripts\python.exe -m pip install --no-index --no-deps .\intentir-0.15.0a2-py3-none-any.whl
 .venv\Scripts\intentir.exe demo notation-lab
 ```
 
 同じデモの機械可読な詳細は `.venv\Scripts\intentir.exe demo notation-lab --json` で確認できます。
 
 `--no-index --no-deps` により、インストール対象は ZIP 内のローカル wheel だけです。コマンドが成功すると、3 形式の結果がすべて `380`、置換後の結果が `390` と表示されます。
+
+## Todo スターターを試す
+
+以下は macOS / Linux の例です。ZIP を展開したルートから実行し、仮想環境を有効化せず、その絶対パスを使い続けます。
+
+```sh
+ZIP_ROOT="$(pwd)"
+INTENTIR="$ZIP_ROOT/.venv/bin/intentir"
+APP="$ZIP_ROOT/my-todo"
+"$INTENTIR" init todo "$APP" --json
+"$INTENTIR" check "$APP/todo.intent" --json
+"$INTENTIR" test "$APP/todo.intent" --json
+"$INTENTIR" run "$APP/todo.intent" CreateTask \
+  --input '{"id":"task-1","title":"牛乳を買う"}' --db "$APP/todo.db"
+"$INTENTIR" run "$APP/todo.intent" CompleteTask \
+  --input '{"id":"task-1"}' --db "$APP/todo.db"
+```
+
+Patch の前に、書き込みプロセスをすべて停止し、停止したままソースと DB を必ず対でバックアップしてください。以下は既存のバックアップ先を上書きせず、DB を read-only URI で開いて SQLite の backup API で複製します。
+
+```sh
+BACKUP="$ZIP_ROOT/my-todo-backup"
+"$ZIP_ROOT/.venv/bin/python" - "$APP" "$BACKUP" <<'PY'
+import shutil
+import sqlite3
+import sys
+from contextlib import closing
+from pathlib import Path
+
+app = Path(sys.argv[1])
+backup = Path(sys.argv[2])
+source = (app / "todo.intent").resolve(strict=True)
+database = (app / "todo.db").resolve(strict=True)
+
+backup.mkdir(mode=0o700, exist_ok=False)
+shutil.copyfile(source, backup / "todo.intent")
+database_uri = database.as_uri() + "?mode=ro"
+with closing(sqlite3.connect(database_uri, uri=True)) as source_db:
+    with closing(sqlite3.connect(backup / "todo.db")) as backup_db:
+        source_db.backup(backup_db)
+PY
+
+"$INTENTIR" patch "$APP/todo.intent" \
+  "$APP/add_task_priority.patch.json" --apply --json
+"$INTENTIR" migrate "$APP/todo.intent" --db "$APP/todo.db" --json
+"$INTENTIR" migrate "$APP/todo.intent" --db "$APP/todo.db" --apply --json
+"$INTENTIR" run "$APP/todo.intent" RenameTask \
+  --input '{"id":"task-1","title":"牛乳を2本買う"}' --db "$APP/todo.db"
+```
+
+これは停止中の writer を前提とした対の取得であり、ホットバックアップやソースと DB をまたぐ原子的スナップショットではありません。ロールバック時も、ソースだけではなく同じバックアップにある DB と対で復元してください。
+
+移行後の出力では、完了状態が保持され、`priority` が既定値 `0` になっていることを確認できます。不要になったタスクは任意で削除できます。
+
+```sh
+"$INTENTIR" run "$APP/todo.intent" DeleteTask \
+  --input '{"id":"task-1"}' --db "$APP/todo.db"
+```
 
 ## 3 形式のサンプルを実行する
 
@@ -93,7 +151,7 @@ py -3.11 -m venv .venv
 
 ## このデモが示す範囲
 
-notation lab は、同じ整数式を式、グラフ JSON、行形式 JSONで表し、同じ既存評価器で実行する手設計の決定的な比較です。実モデルや生成 AI は呼び出さず、API キーも使いません。出力が毎回同じになるように作られています。
+notation lab は、同じ整数式を式、グラフ JSON、行形式 JSONで表し、同じ既存評価器で実行する手設計の決定的な比較です。実モデルや生成 AI は呼び出さず、API キーも使いません。出力が毎回同じになるように作られており、モデルや手法の優位性を示すものではありません。
 
 現在の実験範囲は整数のリテラルと入力、二項演算 `+` / `-` / `*`、単項演算 `+` / `-` に限定されています。除算、浮動小数点、文字列、関数呼び出し、比較、条件式などは対象外です。入力サイズ、ノード数、深さ、整数ビット長にも上限があります。これは表記法を比較するための alpha 実験であり、汎用の算術処理系、本番向けランタイム、または研究上の新規性を主張するものではありません。
 
@@ -119,7 +177,7 @@ shasum -a 256 -c SHA256SUMS
 
 ```powershell
 Get-Content SHA256SUMS
-Get-FileHash -Algorithm SHA256 .\intentir-0.15.0a1-py3-none-any.whl
+Get-FileHash -Algorithm SHA256 .\intentir-0.15.0a2-py3-none-any.whl
 ```
 
 ## 不具合を報告する
