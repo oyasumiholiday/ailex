@@ -46,12 +46,14 @@ from intentir.storage import (
     storage_schema,
     storage_schema_hash,
 )
+from intentir.starter import STARTER_TEMPLATES, create_starter
 from intentir.sqlite_projection import render_sqlite_ddl
 from intentir.validator import ValidationError
 from intentir.verifier import normalize_state, run_action, run_function, verify_ir
 
 
 COMMANDS = {
+    "init",
     "check",
     "test",
     "call",
@@ -87,6 +89,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     handlers = {
+        "init": command_init,
         "check": command_check,
         "test": command_test,
         "call": command_call,
@@ -113,6 +116,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command")
+
+    init = commands.add_parser("init", help="create a starter project")
+    init.add_argument("template", help="starter template name (available: todo)")
+    init.add_argument("directory", type=Path, help="new destination directory")
+    init.add_argument("--json", action="store_true", help="emit structured output")
 
     check = commands.add_parser("check", help="statically validate a program")
     check.add_argument("source", type=Path)
@@ -283,6 +291,39 @@ def build_parser() -> argparse.ArgumentParser:
     ir.add_argument("source", type=Path)
     ir.add_argument("--canonical", action="store_true")
     return parser
+
+
+def command_init(args: argparse.Namespace) -> None:
+    try:
+        if args.template not in STARTER_TEMPLATES:
+            available = ", ".join(STARTER_TEMPLATES)
+            raise ValueError(
+                f"unknown starter template {args.template!r}; available: {available}"
+            )
+        result = create_starter(args.template, args.directory)
+    except (OSError, ValueError) as error:
+        payload = {
+            "ok": False,
+            "diagnostics": [
+                {
+                    "code": "init_error",
+                    "message": str(error),
+                    "path": str(args.directory),
+                }
+            ],
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f"Created {result['template']} starter in {result['directory']}")
+        for filename in result["files"]:
+            print(f"  {filename}")
 
 
 def command_check(args: argparse.Namespace) -> None:

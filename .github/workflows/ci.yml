@@ -83,6 +83,7 @@ jobs:
           "$venv/bin/intentir" demo concurrent-agent --json
           "$venv/bin/intentir-notation" demo
           "$venv/bin/intentir" demo notation-lab --json
+          "$venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_todo_starter.py"
 
   mcp:
     name: Optional MCP stdio
