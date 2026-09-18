@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -31,7 +33,38 @@ def invoke(*arguments: str, expected_status: int = 0) -> dict[str, Any]:
     return result
 
 
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def assert_read_state(
+    source: Path, database: Path, expected_tasks: list[dict[str, Any]]
+) -> None:
+    # The writer is closed here; this checks the quiescent main DB, not WAL sidecars.
+    before = file_sha256(database)
+    expected_state = {"Task": expected_tasks}
+    results = (
+        invoke("read", str(source), "--db", str(database)),
+        invoke("read", str(source), "--db", str(database), "--entity", "Task"),
+    )
+
+    for result in results:
+        assert result["ok"] is True
+        assert result["state"] == expected_state
+        assert result["storage"] == {
+            "kind": "sqlite",
+            "path": str(database),
+            "readOnly": True,
+        }
+
+    assert file_sha256(database) == before
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check-read", action="store_true")
+    arguments = parser.parse_args()
+
     with tempfile.TemporaryDirectory(prefix="intentir todo starter ") as directory:
         root = Path(directory)
         starter = root / "workspace with spaces"
@@ -55,6 +88,14 @@ def main() -> None:
         assert checked["ok"] is True and checked["diagnostics"] == []
         tested = invoke("test", str(source), "--json")
         assert tested["ok"] is True and tested["summary"]["failed"] == 0
+
+        if arguments.check_read:
+            missing_database = root / "missing database.sqlite3"
+            missing = invoke(
+                "read", str(source), "--db", str(missing_database), expected_status=1
+            )
+            assert missing["ok"] is False
+            assert not missing_database.exists()
 
         created = invoke(
             "run",
@@ -96,8 +137,23 @@ def main() -> None:
             {"done": True, "id": "task-1", "title": "buy milk"}
         ]
 
+        if arguments.check_read:
+            assert_read_state(
+                source,
+                database,
+                [{"done": True, "id": "task-1", "title": "buy milk"}],
+            )
+
         patched = invoke("patch", str(source), str(patch), "--apply", "--json")
         assert patched["ok"] is True and patched["applied"] is True
+
+        if arguments.check_read:
+            before_mismatch = file_sha256(database)
+            mismatch = invoke("read", str(source), "--db", str(database), expected_status=1)
+            assert mismatch["ok"] is False
+            assert mismatch["diagnostics"][0]["code"] == "read_error"
+            assert "schema mismatch" in mismatch["diagnostics"][0]["message"]
+            assert file_sha256(database) == before_mismatch
 
         planned = invoke("migrate", str(source), "--db", str(database), "--json")
         assert planned["ok"] is True and planned["applied"] is False
@@ -131,6 +187,20 @@ def main() -> None:
             }
         ]
 
+        if arguments.check_read:
+            assert_read_state(
+                source,
+                database,
+                [
+                    {
+                        "done": True,
+                        "id": "task-1",
+                        "priority": 0,
+                        "title": "buy oat milk",
+                    }
+                ],
+            )
+
         deleted = invoke(
             "run",
             str(source),
@@ -141,6 +211,9 @@ def main() -> None:
             str(database),
         )
         assert deleted["ok"] is True and deleted["state"] == {"Task": []}
+
+        if arguments.check_read:
+            assert_read_state(source, database, [])
 
         final_check = invoke("check", str(source), "--json")
         final_test = invoke("test", str(source), "--json")

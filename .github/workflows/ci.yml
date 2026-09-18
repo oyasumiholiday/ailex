@@ -92,7 +92,7 @@ jobs:
           "$venv/bin/intentir" demo concurrent-agent --json
           "$venv/bin/intentir-notation" demo
           "$venv/bin/intentir" demo notation-lab --json
-          "$venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_todo_starter.py"
+          "$venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_todo_starter.py" --check-read
 
   windows-release:
     name: Published alpha2 Windows Python ${{ matrix.python-version }}
@@ -113,6 +113,61 @@ jobs:
       - name: Test immutable published wheel
         shell: pwsh
         run: ./scripts/smoke_windows_release.ps1 -WorkRoot "$env:RUNNER_TEMP"
+
+  windows-current-read:
+    name: Current wheel read on Windows Python ${{ matrix.python-version }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run focused read tests from source
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = "1"
+          $PSNativeCommandArgumentPassing = "Standard"
+          & python -X utf8 -m unittest discover -s tests -p test_read.py -v
+          if ($LASTEXITCODE -ne 0) { throw "Focused read tests failed with exit code $LASTEXITCODE" }
+      - name: Test installed current wheel outside checkout
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = "1"
+          $PSNativeCommandArgumentPassing = "Standard"
+
+          $wheelRoot = Join-Path $env:RUNNER_TEMP "intentir current wheel $([guid]::NewGuid())"
+          $null = New-Item -ItemType Directory -Path $wheelRoot
+          & python -X utf8 -m pip wheel . --no-deps --wheel-dir $wheelRoot
+          if ($LASTEXITCODE -ne 0) { throw "Wheel build failed with exit code $LASTEXITCODE" }
+
+          $wheels = @(Get-ChildItem -LiteralPath $wheelRoot -Filter "*.whl" -File)
+          if ($wheels.Count -ne 1) { throw "Expected exactly one wheel, found $($wheels.Count)" }
+
+          $workRoot = Join-Path $env:RUNNER_TEMP "intentir read installed $([guid]::NewGuid())"
+          $null = New-Item -ItemType Directory -Path $workRoot
+          $venv = Join-Path $workRoot "fresh venv"
+          & python -X utf8 -m venv $venv
+          if ($LASTEXITCODE -ne 0) { throw "Virtual environment creation failed with exit code $LASTEXITCODE" }
+
+          $venvPython = Join-Path $venv "Scripts\python.exe"
+          & $venvPython -I -X utf8 -m pip install --no-index --no-deps $wheels[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Wheel installation failed with exit code $LASTEXITCODE" }
+
+          Push-Location $workRoot
+          try {
+            & $venvPython -I -X utf8 "$env:GITHUB_WORKSPACE\scripts\smoke_todo_starter.py" --check-read
+            if ($LASTEXITCODE -ne 0) { throw "Installed-wheel read smoke failed with exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
 
   mcp:
     name: Optional MCP stdio
