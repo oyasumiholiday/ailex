@@ -4,17 +4,31 @@ Use this page for a short local or Container trial. No model API key, database s
 
 ## Install the prerelease wheel
 
-Requires Python 3.11 or newer. The current public preview uses the tag `intentir-v0.15.0a1`; install its wheel without a source checkout and run the standalone demonstration:
+Requires Python 3.11 or newer. The current public preview uses the tag `intentir-v0.15.0a2`; install its wheel without a source checkout and run the standalone demonstration:
 
 ```sh
 DEMO_ENV="$(mktemp -d)"
 python3 -m venv "$DEMO_ENV"
 "$DEMO_ENV/bin/pip" install --no-deps \
-  https://github.com/oyasumiholiday/ailex/releases/download/intentir-v0.15.0a1/intentir-0.15.0a1-py3-none-any.whl
+  https://github.com/oyasumiholiday/ailex/releases/download/intentir-v0.15.0a2/intentir-0.15.0a2-py3-none-any.whl
 "$DEMO_ENV/bin/intentir" demo concurrent-agent
 ```
 
 This installation step downloads the wheel. The demonstration itself uses a temporary workspace and makes no model API or other network calls.
+
+## Todo starter from the public wheel
+
+Reuse the isolated environment above. Create a fresh parent directory and pass a child path that does not exist yet, because `init` intentionally refuses to overwrite any existing destination:
+
+```sh
+TODO_PARENT="$(mktemp -d)"
+TODO_APP="$TODO_PARENT/my-todo"
+"$DEMO_ENV/bin/intentir" init todo "$TODO_APP" --json
+"$DEMO_ENV/bin/intentir" check "$TODO_APP/todo.intent" --json
+"$DEMO_ENV/bin/intentir" test "$TODO_APP/todo.intent" --json
+```
+
+The starter comes from resources packaged in the wheel. Initialization creates no database and makes no API or model calls. See the generated `README_JA.md` for persistent CRUD, paired backup, Patch, and migration commands. The [Japanese public trial checklist](docs/PUBLIC_TRIAL_JA.md) provides a release-pinned walkthrough.
 
 ## Use a source checkout
 
@@ -53,25 +67,9 @@ python3 -m venv .venv
 .venv/bin/intentir demo concurrent-agent
 ```
 
-## Todo starter (0.15.0a2 UNRELEASED)
+## Source checkout: Persistent Todo, Patch, and Migration
 
-The `init` command is currently available only from a source installation of the unreleased `0.15.0a2` development version. It creates a new directory from resources packaged inside IntentIR; it does not read examples from the repository at runtime.
-
-```sh
-python3 -m venv .venv
-TODO_ENV="$(pwd)/.venv"
-"$TODO_ENV/bin/pip" install .
-"$TODO_ENV/bin/intentir" init todo "$HOME/intentir-todo" --json
-cd "$HOME/intentir-todo"
-"$TODO_ENV/bin/intentir" check todo.intent --json
-"$TODO_ENV/bin/intentir" test todo.intent --json
-```
-
-The destination parent must already exist. `init` refuses every existing destination, including an empty directory, file, or symlink, and does not create a database or make API or model calls. See the generated `README_JA.md` for the persistent create/complete flow and the backup, Patch, and migration procedure.
-
-## Persistent Todo, Patch, and Migration
-
-This walkthrough copies the application and semantic Patch into a fresh temporary directory. It does not overwrite either checked-in sample or an existing database.
+This later walkthrough is specifically for a source checkout and must be run from the repository root. It copies the checked-in application and semantic Patch into a fresh temporary directory; the standalone wheel workflow above does not require a checkout.
 
 ```sh
 WORK="$(mktemp -d)"
@@ -188,7 +186,7 @@ Every IntentIR command is a new process. The SQLite database preserves the compl
 Build the pinned Python 3.13 image:
 
 ```sh
-docker build --pull -t intentir:0.14 .
+docker build --pull -t intentir:local .
 ```
 
 Run the default concurrent-agent demonstration without network access and with a read-only root filesystem:
@@ -198,13 +196,13 @@ docker run --rm \
   --network none \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-  intentir:0.14
+  intentir:local
 ```
 
 Run another IntentIR command by replacing the default arguments:
 
 ```sh
-docker run --rm --network none intentir:0.14 \
+docker run --rm --network none intentir:local \
   test examples/todo_crud.intent
 ```
 
