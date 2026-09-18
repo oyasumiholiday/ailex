@@ -72,6 +72,15 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Build wheel
         run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Build offline preview bundle
+        if: matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          wheels=(dist/*.whl)
+          test "${#wheels[@]}" -eq 1
+          wheel_name="${wheels[0]##*/}"
+          output="dist/${wheel_name%-py3-none-any.whl}-preview.zip"
+          python scripts/build_share_bundle.py --wheel "${wheels[0]}" --output "$output"
       - name: Test installed wheel outside checkout
         shell: bash
         run: |

@@ -4,7 +4,7 @@
 
 ## 作成と永続化
 
-Python 3.11 以上と、未リリースの開発版 IntentIR 0.15.0a2 が必要です。以下は macOS / Linux の shell 例です。`DEST` は `intentir init todo DEST` で作成したディレクトリに置き換え、生成先から実行してください。Quickstart のように仮想環境を有効化していない場合は、各 `intentir` を `"$TODO_ENV/bin/intentir"` に置き換えます。
+Python 3.11 以上と IntentIR 0.15.0a2 が必要です。以下は macOS / Linux の shell 例です。`DEST` は `intentir init todo DEST` で作成したディレクトリに置き換え、生成先から実行してください。Quickstart のように仮想環境を有効化していない場合は、各 `intentir` を `"$TODO_ENV/bin/intentir"` に置き換えます。
 
 ```sh
 cd DEST

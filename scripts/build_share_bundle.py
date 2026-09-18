@@ -11,13 +11,18 @@ import io
 from pathlib import Path, PurePosixPath
 import stat
 import sys
+import tomllib
 import zipfile
 
 
-EXPECTED_WHEEL = "intentir-0.15.0a1-py3-none-any.whl"
 EXPECTED_NAME = "intentir"
-EXPECTED_VERSION = "0.15.0a1"
 ROOT = Path(__file__).resolve().parents[1]
+with (ROOT / "pyproject.toml").open("rb") as pyproject_file:
+    EXPECTED_VERSION = tomllib.load(pyproject_file)["project"]["version"]
+EXPECTED_WHEEL = f"{EXPECTED_NAME}-{EXPECTED_VERSION}-py3-none-any.whl"
+EXPECTED_METADATA = (
+    f"{EXPECTED_NAME}-{EXPECTED_VERSION}.dist-info/METADATA"
+)
 FIXED_FILES = (
     (ROOT / "docs" / "TRY_IT_JA.md", PurePosixPath("README_JA.md")),
     (
@@ -42,7 +47,7 @@ class BundleError(ValueError):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build the IntentIR 0.15.0a1 offline notation-lab ZIP."
+        description=f"Build the IntentIR {EXPECTED_VERSION} offline preview ZIP."
     )
     parser.add_argument("--wheel", required=True, type=Path, help="path to the release wheel")
     parser.add_argument("--output", required=True, type=Path, help="new ZIP path")
@@ -70,10 +75,12 @@ def validate_wheel(path: Path, wheel_bytes: bytes) -> None:
             metadata_names = [
                 name
                 for name in wheel_zip.namelist()
-                if name == "intentir-0.15.0a1.dist-info/METADATA"
+                if name == EXPECTED_METADATA
             ]
-            if metadata_names != ["intentir-0.15.0a1.dist-info/METADATA"]:
-                raise BundleError("wheel must contain the expected 0.15.0a1 METADATA file")
+            if metadata_names != [EXPECTED_METADATA]:
+                raise BundleError(
+                    f"wheel must contain exactly one {EXPECTED_METADATA} file"
+                )
             metadata = BytesParser(policy=compat32).parsebytes(
                 wheel_zip.read(metadata_names[0])
             )
