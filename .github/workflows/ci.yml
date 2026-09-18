@@ -81,6 +81,8 @@ jobs:
           cd "$RUNNER_TEMP"
           unset PYTHONPATH
           "$venv/bin/intentir" demo concurrent-agent --json
+          "$venv/bin/intentir-notation" demo
+          "$venv/bin/intentir" demo notation-lab --json
 
   mcp:
     name: Optional MCP stdio
