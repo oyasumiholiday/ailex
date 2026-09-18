@@ -94,6 +94,26 @@ jobs:
           "$venv/bin/intentir" demo notation-lab --json
           "$venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_todo_starter.py"
 
+  windows-release:
+    name: Published alpha2 Windows Python ${{ matrix.python-version }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Check out smoke scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test immutable published wheel
+        shell: pwsh
+        run: ./scripts/smoke_windows_release.ps1 -WorkRoot "$env:RUNNER_TEMP"
+
   mcp:
     name: Optional MCP stdio
     runs-on: ubuntu-latest

@@ -10,7 +10,7 @@
 - ZIP SHA-256: `b9e755a26dde53a29a54e49878ff567ac23fe1789372b8b0ec9e0b772a6e0570`
 - wheel SHA-256: `8c82ebddaced33d9eba4dd7bcb9014057ebeced21ec51d21e09329d7bbeebdf8`
 
-Python 3.11 以上が必要です。ソース checkout、API キー、モデル呼び出し、有料 API は不要です。入力と SQLite DB はローカルにだけ保存されます。macOS はローカル検証済み、Linux は CI 検証済み、Windows は未実施です。
+Python 3.11 以上が必要です。ソース checkout、API キー、モデル呼び出し、有料 API は不要です。入力と SQLite DB はローカルにだけ保存されます。macOS はローカル検証済み、Linux は CI 検証済みです。Windows は限定された公開 wheel CI のみ確認済みです。条件と範囲は [Windows 公開 wheel 確認](WINDOWS_RELEASE_CHECK_JA.md) を参照してください。
 
 各項目の状態は `未実施`、`成功`、`失敗`、`該当なし` のいずれかで記録します。追加チェックを行わない場合は `該当なし` とし、未実施の変更・移行をワークフロー全体の成功として扱わないでください。
 
@@ -38,7 +38,7 @@ shasum -a 256 intentir-0.15.0a2-py3-none-any.whl
 
 各コードブロックでは、このうち自分の OS の1行だけを実行し、表示された値を「固定対象」の値と照合します。一致しなければ停止してください。
 
-Windows での Todo チェックは未検証です。以降の `mktemp`、POSIX パス、shell コマンドを PowerShell へそのまま貼り付けないでください。Windows では固定版ガイドの Windows インストール手順までを使用し、Todo 操作は検証済みの Windows 手順が公開されるまで `該当なし` としてください。
+Windows の公開 wheel は CI で限定的に確認していますが、以降は人向けの POSIX 手順であり、Windows 向け手順としては未検証です。`mktemp`、POSIX パス、shell コマンドを PowerShell へそのまま貼り付けないでください。Windows でこのチェックリストを使う場合、Todo 操作は `該当なし` とし、CI の技術的な再現だけが必要な場合は [Windows 公開 wheel 確認](WINDOWS_RELEASE_CHECK_JA.md) のスクリプトを使用してください。
 
 ## 基本チェック
 

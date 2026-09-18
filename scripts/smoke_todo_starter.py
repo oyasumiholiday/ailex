@@ -10,10 +10,10 @@ from typing import Any
 
 def invoke(*arguments: str, expected_status: int = 0) -> dict[str, Any]:
     completed = subprocess.run(
-        [sys.executable, "-I", "-m", "intentir", *arguments],
+        [sys.executable, "-I", "-X", "utf8", "-m", "intentir", *arguments],
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     if completed.returncode != expected_status:
         raise AssertionError(
