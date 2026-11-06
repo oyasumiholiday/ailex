@@ -1,65 +1,50 @@
-# Ailex
+# IntentIR
 
-[English README](README.md)
+[English](README.md) · [試す手順](QUICKSTART.md) · [開発目標](GOALS_JA.md)
 
-**AI が書くために設計した、小さな型付き言語。** 契約（実行される実例）・スコープを開示する構造化診断・検証済み2バックエンド（インタプリタ＋ JavaScript）。
+IntentIR は、AI が型のあるプログラムを作り、別の AI に渡し、検証し、必要な部分を変更するための中間言語です。関数やデータだけでなく、依存関係、契約、変更前の状態を確認するための ID も機械が扱える形で表します。
 
-```
-type Point = {x : Float, y : Float}
+## 公開版でできること
 
-fn dist (p : Point, q : Point) -> Float
-  ensures ret >= 0.0
-  eg dist({x = 0.0, y = 0.0}, {x = 3.0, y = 4.0}) = 5.0
-body Float
-  sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y))
-end dist
-```
+この公開リポジトリと alpha wheel では、テキスト形式の `.intent` を入力に使います。型検査、純粋関数の実行、実行例とシナリオの検証、SQLite への保存、TypeScript の生成、変更前の ID を照合する Patch に対応しています。Agent Tools と任意のローカル MCP サーバーからも操作できます。
 
-`eg` は飾りではなく**実行される契約**。`ailex run` が検査し、破れば構造化診断で報告する。
+構造化された JSON を直接書く `.intent.json` の入力機能は、ローカル開発段階のものです。この公開リポジトリにも公開 wheel にも含まれません。JSON の診断、Patch、出力用の意味 IR は、それとは別のものです。
 
-## なぜ AI 向けか（全部、実測に根拠がある）
+公開版の参照先は [IntentIR 0.15.0a3 alpha](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a3) と [タグ固定の日本語ガイド](https://github.com/oyasumiholiday/ailex/blob/intentir-v0.15.0a3/docs/TRY_IT_JA.md)です。以前の版の確認手順は [alpha2 公開試用チェックリスト](docs/PUBLIC_TRIAL_JA.md)に残しています。
 
-1. **診断が「何が使えるか」を開示する。** 型エラーはスコープ（名前と型の一覧）、未知フィールドは使えるフィールド一覧を含む JSON。LLM の修復実験で、この開示が未知 API の名前当て発散を一手修正に変えた（pass@k 80%→98–100%、[EXPERIMENTS.md](EXPERIMENTS.md) §Q1）。
-2. **構文はモデルの事前分布と喧嘩しない。** 中置演算子、注釈任意のラムダ `fn (acc, x) => ...`。ラムダ注釈を必須にしていた頃、実測の失敗は**すべて**その parse エラーだった。言語側を直して再測定したら Haiku/Opus とも pass@1 50–63%→**100%**（§A1→A2）。
-3. **契約＝実行される実例。** 仕様の最小単位を `eg` として関数に同居させ、常に検査する。
-4. **在ることが分かっている挙動。** 2つのバックエンド（インタプリタ／JS 変換）が同一の適合テスト 89 件で常時一致検証される。`==` はリスト・レコードを深く比較し、実行時エラーも構造化診断で返る。
+## まず試す
 
-早見表 1 枚（[PRIMER.md](PRIMER.md)）をコンテキストに入れるだけで、Haiku 4.5 と Opus 4.8 が 16/16 タスク（Option・レコード・文字列処理を含む）を一発で書けた。それがこの言語の受け入れテストである。
+Python 3.11 以上を使います。[Quickstart](QUICKSTART.md)には、公開 wheel のインストール、Todo の作成、状態の読み取り、バックアップ・復元、Patch と移行、Container の手順があります。インストール後の基本的な試用にモデル API キーは不要です。
 
-## 使う
-
-Node.js 23 以上（.ts 直接実行）。
+ソースを取得済みなら、リポジトリのルートで次を実行できます。
 
 ```sh
-node core/cli.ts run examples/points.ax     # 検査 → JS に変換して実行
-node core/cli.ts check file.ax              # 型＋契約検査 → 構造化診断(JSON)
-node core/cli.ts scope file.ax dist         # その位置で使える名前と型(JSON)
-node core/cli.ts fmt file.ax                # 正規形へ整形
-node core/cli.ts emit-js file.ax            # 生成される JavaScript を表示
-# リポジトリ内なら ./ailex run ... too。npm bin としては bin/ailex.js（npm i -g / npx 用意済み・未公開）
+python3 -m intentir check examples/todo_crud.intent
+python3 -m intentir test examples/todo_crud.intent
+python3 -m intentir demo concurrent-agent
 ```
 
-テスト: `npm test`（適合テスト 89 件・両バックエンドの一致まで検証）。
+最後の実演では、同じプログラムを読んだ二つのエージェントのうち、一方の変更後に古くなった Patch を拒否し、情報を読み直してから変更します。これは決められた手順の実演であり、異なるベンダーの AI 同士で交換できたという実験結果ではありません。
 
-## 言語の中身（v0.5.3）
+## 開発の方向と限界
 
-型 `Int / Float / Bool / String / List[T] / Option[T] / {レコード} / (T)->U`、型エイリアス、中置演算子、`if` 式、`let..in`、再帰、無名関数（注釈任意）、`map/filter/fold`、文字列 stdlib（`split/join/contains/substring/trim/toString`）、安全な取得（`headOr/getOr`）、`Option[T]`（`some/none/isSome/unwrapOr` と Option を返す `find/parseInt/parseFloat`）、契約（`requires/ensures/eg`）。全機能は [PRIMER.md](PRIMER.md)、設計と履歴は [SPEC.md](SPEC.md)。
+現在の開発対象は IntentIR です。今後は、要素数と処理量に上限のあるコレクション、AI による作成・変更・交換、独立した利用者による試用を段階的に確かめます。CRUD は公開版で試せる用途の一つであり、将来の用途をそれだけに限定しません。詳しくは [開発目標](GOALS_JA.md)を参照してください。
 
-## 正直な現状
+公開版の純粋関数は単一の値を扱い、コレクション、汎用ループ、一般再帰には対応していません。Patch の ID 照合や型検査は、完全な実行隔離や全入力に対する正しさの証明ではありません。研究発表や有料モデル比較は、通常の言語開発とは分けて判断します。過去の実験承認は、新たな課金や外部送信の承認として使いません。
 
-- 研究プロトタイプから言語リリースへ移行中の**個人プロジェクト**。API は安定していない。
-- 未対応: effect/IO・モジュール・パターンマッチ・即時ラムダ呼び・ユーザ定義多相。`head/get` は空/範囲外で実行時エラー（`headOr/getOr`・`find` を推奨）。
-- 設計判断はすべて実測かドッグフーディングに根拠を持たせている（[DOGFOOD.md](DOGFOOD.md)・[EXPERIMENTS.md](EXPERIMENTS.md)）。うまくいかなかった実験・撤回した主張も同文書に残している（例: 「構造化フィードバックの*形式*が効く」という当初仮説は実測で棄却）。
-- 「AI はこの言語を学習していない」問題は in-context 学習（PRIMER 1枚）で回避できることを 16 タスク規模で確認済み。それ以上の規模は未検証。
+## 開発時の検証
 
-## ドキュメント
+生成 TypeScript の実行には、CI と同じ Node.js 24 を使います。
 
-| ファイル | 内容 |
-|---|---|
-| [PRIMER.md](PRIMER.md) | AI 向け正典（システムプロンプトにそのまま入れる） |
-| [SPEC.md](SPEC.md) | 言語仕様と設計判断・バージョン履歴 |
-| [CHANGELOG.md](CHANGELOG.md) | 変更履歴 |
-| [README.md](README.md) | ルートへ昇格したIntentIR意味層とAilexとの統合概要 |
-| [DOGFOOD.md](DOGFOOD.md) | ドッグフーディングの記録（痛点→修正） |
-| [EXPERIMENTS.md](EXPERIMENTS.md) | AI 実測の記録（否定的結果も含む） |
-| [core/README.md](core/README.md) | 実装の歩き方 |
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q intentir tests
+```
+
+任意の MCP 依存関係や Node がなく実行できなかった検査は、その旨を報告します。詳しい手順は [Contributing](CONTRIBUTING.md)、AI 向けの指示は [AGENTS.md](AGENTS.md)、脆弱性の連絡先は [SECURITY.md](SECURITY.md)を参照してください。
+
+## 旧 Ailex とライセンス
+
+旧実装と資料は削除せず、[Ailex の履歴案内](docs/LEGACY_AILEX.md)から参照できます。旧日本語 README も原文のまま保存しています。Ailex と IntentIR の構文や実装は別であり、両者の統合を前提にしません。
+
+旧 Ailex 実装は [MIT](LICENSE)、IntentIR Python パッケージと新しい関連ファイルは [Apache-2.0](LICENSE-APACHE)です。この文書整理でライセンスは変わりません。
