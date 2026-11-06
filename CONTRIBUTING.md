@@ -1,11 +1,13 @@
 # Contributing
 
-Thank you for helping improve Ailex and IntentIR. This repository contains two related layers, so begin by identifying which behavior your change affects:
+Thank you for helping improve IntentIR. Active development focuses on AI creation, exchange, verification, and guarded editing of structured typed programs; see the [development goals](GOALS_JA.md). Begin by identifying which behavior your change affects:
 
-- Ailex surface language: `core/`, `.ax` examples, and `npm test`
-- IntentIR semantic layer: `intentir/`, `.intent` examples, and Python tests
+- IntentIR: `intentir/`, public `.intent` examples, and Python tests
+- Retained Ailex compatibility: `core/` and `.ax` examples; see the [legacy index](docs/LEGACY_AILEX.md)
 - Evaluation and demonstrations: `benchmarks/` and `demo/`
 - Documentation, security, and release process: Markdown and `.github/`
+
+Direct structured `.intent.json` authoring is local-development-only work, absent from this public checkout and the alpha wheel. Do not document it as a public capability or import unpublished modules, examples, or experimental artifacts. Ailex integration and research submissions are not prerequisites for IntentIR changes.
 
 ## Before Opening a Pull Request
 
@@ -21,14 +23,11 @@ AI-assisted contributions are welcome. The contributor remains responsible for t
 
 Requirements:
 
-- Node.js 23 or newer for Ailex
 - Python 3.11 or newer for IntentIR
+- Node.js 24, matching CI, for generated TypeScript execution
 - Optional: `uv` for the locked MCP environment
 
 ```sh
-npm ci --ignore-scripts
-npm test
-
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 uv lock --check
@@ -43,22 +42,16 @@ uv run --frozen --extra mcp python -m unittest discover -s tests -v
 
 The concise setup and Container workflow are in [QUICKSTART.md](QUICKSTART.md).
 
-## Browser Bundle
+## Legacy Compatibility
 
-Install the exact locked toolchain with `npm ci`. After changing an exported Ailex parser, checker, interpreter, or JavaScript-backend behavior, regenerate the browser bundle with:
-
-```sh
-npm run build:browser
-npm run check:browser
-```
-
-Do not edit `docs/ailex.js` by hand. `npm run build:browser` is the only regeneration path; `npm run check:browser` verifies byte-for-byte freshness without writing the bundle.
+Only changes affecting retained Ailex behavior need its compatibility checks and browser bundle regeneration. Follow the commands in the [legacy index](docs/LEGACY_AILEX.md); do not edit `docs/ailex.js` by hand.
 
 ## Pull Request Requirements
 
 - Describe what changed, why it changed, and the affected compatibility boundary.
 - Include the exact verification commands and results.
 - Record untested environments, external services, and residual risks.
+- Report optional MCP dependency skips and missing generated-TypeScript execution explicitly; test success is not evidence of independent user trials or cross-vendor AI exchange.
 - Preserve deterministic output and structured diagnostics where the existing interface provides them.
 - Treat Patch application, database migration, filesystem writes, and external model execution as explicit trust boundaries.
 - Keep Agent/MCP writes disabled by default. Any change that expands write authority must include approval, diff, audit, and rollback considerations.

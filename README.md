@@ -1,23 +1,24 @@
-# Ailex + IntentIR
+# IntentIR
+
+[日本語](README.ja.md) · [Quickstart](QUICKSTART.md) · [Development goals](GOALS_JA.md)
+
+IntentIR is an AI-native intermediate language for building, exchanging, verifying, and patching structured typed programs. Its active development focuses on machine-readable meaning, dependencies, contracts, diagnostics, and guarded changes.
 
 IntentIR `0.15.0a3` alpha のリリース時の参照先は [GitHub Release](https://github.com/oyasumiholiday/ailex/releases/tag/intentir-v0.15.0a3) と [タグ固定の日本語ガイド](https://github.com/oyasumiholiday/ailex/blob/intentir-v0.15.0a3/docs/TRY_IT_JA.md) です。`0.15.0a3` では、保存済み SQLite 状態を action を実行せず JSON で読む `intentir read` が追加されました。従来の `0.15.0a2` 向け動作確認は [alpha2 公開試用チェックリスト](docs/PUBLIC_TRIAL_JA.md) として残しています。
 
-This repository contains two related AI-first programming prototypes with separate implementations:
+The public implementation lives in `intentir/` and accepts textual `.intent` programs, compiling them into a content-addressed semantic graph. The direct structured `.intent.json` authoring frontend is local-development-only work: it is not included in this public checkout or the published alpha wheel. Canonical JSON IR output and Agent Tool JSON arguments are not that authoring format.
 
-- [Ailex](AILEX_README.md) is a compact typed language implemented by the TypeScript checker, interpreter, and JavaScript backend in `core/`.
-- IntentIR is a Python implementation of a content-addressed semantic language, verifier, transactional runtime, and agent editing interface in `intentir/`.
-
-There is no implemented Ailex-to-IntentIR lowering pipeline yet. Their source files, CLIs, and examples are currently independent.
+The earlier [Ailex prototype](docs/LEGACY_AILEX.md) remains available for compatibility and historical reference. Its implementation, syntax, and CLI are separate; no Ailex-to-IntentIR lowering pipeline is implemented or required by the current goals.
 
 Start with the [short Quickstart](QUICKSTART.md) for local and Container commands.
 
-IntentIR combines content-addressed program structure with typed pure functions, contracts, CRUD effects, scenario tests, structured diagnostics, a transactional interpreter, relational SQLite projection, and TypeScript generation. Its canonical graph carries identity, dependencies, effects, constraints, and verification obligations. The design review is in [AILEX_ANALYSIS_JA.md](AILEX_ANALYSIS_JA.md).
+IntentIR combines content-addressed program structure with typed pure functions, contracts, CRUD effects, scenario tests, structured diagnostics, a transactional interpreter, relational SQLite projection, and TypeScript generation. Its canonical graph carries identity, dependencies, effects, constraints, and verification obligations. CRUD applications are a working public use case, not a limit on the language's longer-term scope. The earlier [design review](AILEX_ANALYSIS_JA.md) is historical context, not a merged-language implementation claim.
 
 Japanese verification artifacts are available for [CRUD, SQLite, and migration](VALIDATION_REPORT_JA.md), [typed pure functions](FUNCTION_VALIDATION_REPORT_JA.md), [functions inside Actions](ACTION_FUNCTION_VALIDATION_REPORT_JA.md), [content-addressed Module/import linking](MODULE_VALIDATION_REPORT_JA.md), [Entity relations with incremental SQLite writes](RELATION_VALIDATION_REPORT_JA.md), [explicit Capability injection](CAPABILITY_VALIDATION_REPORT_JA.md), [hash-guarded semantic patches](PATCH_VALIDATION_REPORT_JA.md), the [Agent/MCP interface](AGENT_MCP_VALIDATION_REPORT_JA.md), and the latest [OpenAI calibration v4 result](OPENAI_CALIBRATION_V4_RESULT_2026-07-24_JA.md).
 
 Security and quality reviews use the project-specific [Japanese checklist](SECURITY_QUALITY_CHECKLIST_JA.md), derived from the preserved [full review criteria](docs/SECURITY_QUALITY_REVIEW_CRITERIA_JA.md). The current findings and release blockers are recorded in the [2026-07-21 baseline review](SECURITY_QUALITY_BASELINE_2026-07-21_JA.md).
 
-The primary external milestone is an [ICSE 2027 Tool Demonstration submission](ICSE_2027_DEMO_SUBMISSION_PLAN_JA.md) by October 23, 2026 AoE. Development is therefore focused on a reproducible concurrent-agent demo, an easy-to-run public artifact, and a controlled editing benchmark.
+Current priorities are described in the [development goals](GOALS_JA.md): program creation and guarded editing, bounded collections, AI-to-AI exchange, and independent user trials. Research submissions and paid model comparisons are separate activities, not prerequisites for ordinary language development. Existing research plans and reports remain historical evidence with their original scope.
 
 IntentIR v0.14 exposes its content-addressed graph, impact analysis, verifier, builders, and transactional Patch protocol through nine model-independent Agent Tools. The same structured contract is available through a dependency-free CLI and an optional local MCP stdio server. IntentIR is still a domain language rather than a general-purpose replacement for Go or Python.
 
@@ -265,7 +266,7 @@ The MCP client must launch `intentir-mcp` as a subprocess. The server intentiona
 
 ## Concurrent-agent demonstration
 
-Run the self-contained ICSE demonstration scenario:
+Run the self-contained concurrent-agent scenario:
 
 ```sh
 python3 -m intentir demo concurrent-agent
@@ -321,7 +322,7 @@ python3 -m intentir benchmark-model \
   --json
 ```
 
-Before any paid run, use the checked-in budget-guarded preflight. It performs no provider request:
+Paid calls, credential use, and external data transmission require separate approval for the intended run and scope; historical experiment approvals cannot be reused. After that approval, use the checked-in budget-guarded preflight. It performs no provider request:
 
 ```sh
 python3 -m intentir pilot \
@@ -448,12 +449,11 @@ The `0.15.0a3` `read` command opens an existing database through SQLite [`mode=r
 ## Verification
 
 ```sh
-npm test
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q intentir tests
 ```
 
-The Ailex suite checks parser, type-system, contract, interpreter, and JavaScript-backend conformance. The IntentIR suite covers compiler/runtime/storage behavior, CLI and structured diagnostics, packaged starters, Patch and migration flows, Agent/MCP boundaries, benchmark adapters, demonstrations, and wheel/distribution behavior. These suites exercise the documented implementation surfaces; passing them is not a broad guarantee of correctness, security, production suitability, or behavior on untested platforms.
+Use Python 3.11 or newer and Node.js 24, matching CI, to execute generated TypeScript tests. The IntentIR suite covers compiler/runtime/storage behavior, CLI and structured diagnostics, packaged starters, Patch and migration flows, Agent/MCP boundaries, benchmark adapters, demonstrations, and wheel/distribution behavior. Report actual results, optional-dependency skips, and missing Node execution rather than relying on historical test counts. Optional MCP setup is in [Contributing](CONTRIBUTING.md); retained Ailex checks are in the [legacy index](docs/LEGACY_AILEX.md). Passing these checks is not a broad guarantee of correctness, security, production suitability, or behavior on untested platforms.
 
 ## License
 
@@ -461,4 +461,4 @@ The Ailex implementation is licensed under the [MIT License](LICENSE). The Inten
 
 ## Current boundaries
 
-Pure functions currently use scalar values and support immutable local bindings followed by a return expression; there are no general statements, reassignment or mutable locals, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Capability Operations currently accept no arguments and are injected as precomputed scalar values, so HTTP/File calls, async I/O, retries, and secret policies are not implemented. Keyless Entity changes still use full replacement. Patch operations edit definitions in the root source file only, use the currently supported semantic member paths, and canonical formatting may not preserve comments inside changed definitions. The MCP adapter currently supports local stdio only; remote HTTP transport, authentication, Resources, Prompts, and editor-specific installation helpers are not implemented. The OpenAI provider path is implemented and offline-tested, but no paid API trial has been executed or verified in this repository. The current trajectory candidates are handcrafted fixtures. The next practical step is to freeze the selected model snapshot and prompt, expand to the planned 10 applications and 40 checkpoints, and record real-model trials without exposing evaluation tests.
+Pure functions currently use scalar values and support immutable local bindings followed by a return expression; there are no general statements, reassignment or mutable locals, collections, pattern matching, or recursive termination proofs. Imports expose every linked symbol through a flat namespace; aliases, private exports, package manifests, registries, and version constraints are not implemented. Relations currently reject cycles and provide restrictive foreign keys only; there are no cardinality declarations, cascades, joins, or relation-aware query expressions. Capability Operations currently accept no arguments and are injected as precomputed scalar values, so HTTP/File calls, async I/O, retries, and secret policies are not implemented. Keyless Entity changes still use full replacement. Patch operations edit definitions in the root source file only, use the currently supported semantic member paths, and canonical formatting may not preserve comments inside changed definitions. The MCP adapter currently supports local stdio only; remote HTTP transport, authentication, Resources, Prompts, and editor-specific installation helpers are not implemented. The provider implementation and its offline tests are distinct from the historical paid calibration reports linked above; handcrafted trajectory fixtures are not new model trials. Current next steps are in [GOALS_JA.md](GOALS_JA.md). Earlier paid approvals do not authorize new experiments.

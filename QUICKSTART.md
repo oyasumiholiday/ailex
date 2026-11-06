@@ -1,6 +1,8 @@
-# Ailex + IntentIR Quickstart
+# IntentIR Quickstart
 
 Use this page for a short local or Container trial. No model API key, database server, or network service is required after installation.
+
+The public wheel and this checkout use `.intent` source files. Direct structured `.intent.json` authoring is local-development-only work and is not included in either. JSON diagnostics, Patch envelopes, and emitted graph IR do not change this source-format boundary. See the [development goals](GOALS_JA.md) for the longer-term direction.
 
 ## Install the prerelease wheel
 
@@ -40,16 +42,6 @@ The starter comes from resources packaged in the wheel. Initialization creates n
 ```sh
 git clone https://github.com/oyasumiholiday/ailex.git
 cd ailex
-```
-
-## Try Ailex
-
-Requires Node.js 23 or newer.
-
-```sh
-npm ci --ignore-scripts
-node core/cli.ts run examples/points.ax
-npm test
 ```
 
 ## Try IntentIR
@@ -218,7 +210,7 @@ docker run --rm --network none intentir:local \
 
 ## Next Steps
 
-- [Ailex language guide](AILEX_README.md)
+- [Legacy Ailex index](docs/LEGACY_AILEX.md)
 - [IntentIR commands and architecture](README.md)
 - [Concurrent-agent scenario](demo/concurrent_agent/README.md)
 - [IntentBench-Evolve](benchmarks/intentbench_evolve/README.md)
